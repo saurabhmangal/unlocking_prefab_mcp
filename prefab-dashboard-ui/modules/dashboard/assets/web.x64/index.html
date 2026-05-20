@@ -156,6 +156,24 @@ function Step({ step }) {
   );
 }
 
+/* ── Query intent parser ── */
+function parseQueryIntent(query) {
+  const q = (query || '').toLowerCase();
+
+  // How many years to show
+  const yearMatch = q.match(/(\d+)\s*year/);
+  const yearLimit = yearMatch ? parseInt(yearMatch[1], 10) : null;
+
+  // Which chart to prioritise
+  const wantsRevenue = /revenue|sales|turnover|income growth|top.?line/.test(q);
+  const wantsProfit  = /profit|margin|net income|bottom.?line|earnings|breakdown/.test(q);
+  const focus = wantsProfit && !wantsRevenue ? 'profit'
+              : wantsRevenue && !wantsProfit ? 'revenue'
+              : 'both';
+
+  return { yearLimit, focus };
+}
+
 /* ── Revenue chart ── */
 function RevenueChart({ trend }) {
   const ref = useRef(null);
@@ -253,9 +271,16 @@ function ProfitPieChart({ breakdown }) {
 }
 
 /* ── Financial panel ── */
-function Financials({ data }) {
+function Financials({ data, query }) {
   if (!data || data.error) return null;
   const breakdown = data.profit_breakdown ?? null;
+  const { yearLimit, focus } = parseQueryIntent(query);
+
+  // Apply year limit to revenue trend
+  const trend = yearLimit
+    ? (data.revenue_trend || []).slice(0, yearLimit)
+    : (data.revenue_trend || []);
+
   const items = [
     { label: 'Ticker',        value: data.ticker || '—' },
     { label: 'Sector',        value: data.sector || '—' },
@@ -269,9 +294,27 @@ function Financials({ data }) {
   return (
     <div style={{ animation: 'fadeIn .5s ease' }}>
       <SectionLabel>Financials</SectionLabel>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-        <RevenueChart trend={data.revenue_trend} />
-        <ProfitPieChart breakdown={breakdown} />
+      {yearLimit && (
+        <div style={{ fontSize: '.78rem', color: C.accent2, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ background: 'rgba(108,99,255,.15)', border: '1px solid rgba(108,99,255,.3)', borderRadius: 20, padding: '2px 10px' }}>
+            Showing last {yearLimit} year{yearLimit > 1 ? 's' : ''} · filtered from query
+          </span>
+        </div>
+      )}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: focus === 'both' ? '1fr 1fr' : '1fr',
+        gap: 16, marginBottom: 16,
+      }}>
+        {focus === 'profit'
+          ? <ProfitPieChart breakdown={breakdown} />
+          : focus === 'revenue'
+          ? <RevenueChart trend={trend} />
+          : <>
+              <RevenueChart trend={trend} />
+              <ProfitPieChart breakdown={breakdown} />
+            </>
+        }
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {items.map(it => (
@@ -514,7 +557,7 @@ function App() {
 
             {/* LEFT — financials, results, chat */}
             <div>
-              {finData && <Financials data={finData} />}
+              {finData && <Financials data={finData} query={title} />}
               {data && <Results data={data} />}
             </div>
 
