@@ -1,0 +1,14 @@
+{
+  "export_libraries": [],
+  "description": "Company research dashboard UI module",
+  "platforms": {
+    "web.x64": {
+      "entry_point": "index.html",
+      "requires": ["browser"]
+    },
+    "chrome.v3": {
+      "entry_point": "index.html",
+      "requires": ["chrome-extension-manifest-v3"]
+    }
+  }
+}

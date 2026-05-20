@@ -1,0 +1,51 @@
+# Environment
+.env
+.env.*
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+wheels/
+
+# uv
+.uv/
+
+# Type checking
+.mypy_cache/
+.pytype/
+.pyre/
+
+# Testing
+.pytest_cache/
+.tox/
+htmlcov/
+.coverage
+coverage.xml
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Project-specific runtime output
+data/
+prefab-dashboard-ui/output/

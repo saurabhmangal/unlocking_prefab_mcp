@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>__DASHBOARD_TITLE__</title>
+  <style>
+    :root {
+      --bg: #12141f; --surface: #1a1d2e; --border: #252942;
+      --accent: #7c6bff; --accent2: #a78bfa; --accent3: #38bdf8;
+      --text: #dde4f0; --text-dim: #8895aa; --success: #34d399; --r: 8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 380px; min-height: 480px;
+      background: var(--bg); color: var(--text);
+      font-family: 'Segoe UI', -apple-system, sans-serif;
+      font-size: 13px; line-height: 1.6;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #0f0c29, #302b63);
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid rgba(108,99,255,.3);
+    }
+    .header .badge {
+      font-size: 9px; font-weight: 700; letter-spacing: 1.2px;
+      text-transform: uppercase; color: #a78bfa;
+      background: rgba(108,99,255,.15); border: 1px solid rgba(108,99,255,.3);
+      padding: 2px 8px; border-radius: 20px; display: inline-block;
+      margin-bottom: 8px;
+    }
+    .header h2 { font-size: 1.1rem; font-weight: 700; color: #fff; }
+    .header .sub { color: #a5b4fc; font-size: .78rem; margin-top: 2px; }
+
+    .body { padding: 14px 16px; }
+    .field { margin-bottom: 12px; }
+    .field-label {
+      font-size: 9.5px; font-weight: 700; letter-spacing: 1.3px;
+      text-transform: uppercase; color: var(--accent2); margin-bottom: 4px;
+    }
+    .field-value {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 8px 12px;
+      color: var(--text); font-size: .82rem; line-height: 1.6;
+    }
+
+    .source-link {
+      display: flex; align-items: center; gap: 6px;
+      color: var(--accent3); text-decoration: none;
+      font-size: .78rem; font-weight: 600;
+      padding: 7px 12px; border-radius: var(--r);
+      border: 1px solid rgba(56,189,248,.3);
+      background: rgba(56,189,248,.06);
+      transition: background .15s;
+      margin-top: 4px;
+    }
+    .source-link:hover { background: rgba(56,189,248,.12); }
+
+    .footer {
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: .7rem; color: var(--text-dim);
+    }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); display: inline-block; margin-right: 5px; }
+    code { font-family: Consolas, monospace; background: rgba(255,255,255,.07); padding: 1px 5px; border-radius: 3px; font-size: .8em; color: var(--accent3); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="badge">⬡ Prefab · chrome.v3</div>
+    <h2 id="h-title">Loading…</h2>
+    <div class="sub" id="h-desc"></div>
+  </div>
+
+  <div class="body">
+    <div class="field">
+      <div class="field-label">Entity</div>
+      <div class="field-value" id="c-title">—</div>
+    </div>
+    <div class="field">
+      <div class="field-label">Summary</div>
+      <div class="field-value" id="c-extract">—</div>
+    </div>
+    <div class="field">
+      <div class="field-label">Classification</div>
+      <div class="field-value" id="c-desc">—</div>
+    </div>
+    <div class="field">
+      <div class="field-label">Source</div>
+      <a class="source-link" id="wiki-link" href="#" target="_blank">↗ Wikipedia</a>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><span class="dot"></span><code>__DATA_FILE__</code></span>
+    <span>dashboard v1.0.0</span>
+  </div>
+
+  <script>
+    const TITLE = "__DASHBOARD_TITLE__";
+    const DATA  = __DASHBOARD_DATA__;
+
+    document.getElementById("h-title").textContent   = TITLE;
+    document.getElementById("h-desc").textContent    = DATA.description || "";
+    document.getElementById("c-title").textContent   = DATA.title       || TITLE;
+    document.getElementById("c-extract").textContent = DATA.extract     || "—";
+    document.getElementById("c-desc").textContent    = DATA.description || "—";
+
+    const l = document.getElementById("wiki-link");
+    if (DATA.url) { l.href = DATA.url; } else { l.style.display = "none"; }
+  </script>
+</body>
+</html>

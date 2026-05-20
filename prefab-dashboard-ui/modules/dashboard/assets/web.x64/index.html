@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prefab Dashboard</title>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root {
+      --bg:      #0d0f1a; --surface: #141727; --surface2: #1c2036;
+      --border:  #252a45; --accent:  #6c63ff; --accent2: #a78bfa;
+      --accent3: #38bdf8; --success: #34d399; --warn: #fbbf24;
+      --error:   #f87171; --text:    #e2e8f0; --dim:  #94a3b8;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', -apple-system, sans-serif; min-height: 100vh; }
+    #root { min-height: 100vh; }
+    code { font-family: 'Cascadia Code','Consolas',monospace; background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 4px; font-size: .83em; color: var(--accent3); }
+    @keyframes spin   { to { transform: rotate(360deg); } }
+    @keyframes pulse  { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+    @keyframes fadeIn { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #252a45; border-radius: 4px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const C = {
+  bg: '#0d0f1a', surface: '#141727', surface2: '#1c2036', border: '#252a45',
+  accent: '#6c63ff', accent2: '#a78bfa', accent3: '#38bdf8',
+  success: '#34d399', warn: '#fbbf24', error: '#f87171',
+  text: '#e2e8f0', dim: '#94a3b8',
+};
+
+const STATUS_META = {
+  pending: { icon: '○', color: C.dim,     bg: C.surface2 },
+  running: { icon: '…', color: C.accent2, bg: 'rgba(108,99,255,.15)' },
+  done:    { icon: '✓', color: C.success, bg: 'rgba(52,211,153,.12)' },
+  error:   { icon: '✗', color: C.error,   bg: 'rgba(248,113,113,.1)' },
+};
+
+/* ── helpers ── */
+function fmt(n) {
+  if (n == null) return '—';
+  if (Math.abs(n) >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+  if (Math.abs(n) >= 1e9)  return (n / 1e9).toFixed(2) + 'B';
+  if (Math.abs(n) >= 1e6)  return (n / 1e6).toFixed(2) + 'M';
+  return n.toLocaleString();
+}
+function pct(n) { return n == null ? '—' : (n * 100).toFixed(1) + '%'; }
+
+/* ── atoms ── */
+function Badge({ children, style }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '3px 11px', borderRadius: 20,
+      fontSize: 10, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase',
+      ...style,
+    }}>{children}</span>
+  );
+}
+
+function Spinner() {
+  return (
+    <span style={{
+      display: 'inline-block', width: 13, height: 13,
+      border: '2px solid rgba(108,99,255,.3)', borderTopColor: C.accent2,
+      borderRadius: '50%', animation: 'spin .7s linear infinite', flexShrink: 0,
+      willChange: 'transform',
+    }} />
+  );
+}
+
+function LiveDot({ done }) {
+  return (
+    <span style={{
+      width: 7, height: 7, borderRadius: '50%', background: C.success,
+      display: 'inline-block',
+      animation: done ? 'none' : 'pulse 1.3s infinite',
+      willChange: done ? 'auto' : 'opacity',
+    }} />
+  );
+}
+
+function SectionLabel({ children }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      fontSize: 10.5, fontWeight: 700, letterSpacing: '1.8px',
+      textTransform: 'uppercase', color: C.dim, marginBottom: 16,
+    }}>
+      {children}
+      <div style={{ flex: 1, height: 1, background: C.border }} />
+    </div>
+  );
+}
+
+function Card({ children, hero, style }) {
+  return (
+    <div style={{
+      background: hero
+        ? 'linear-gradient(135deg,rgba(99,102,241,.09),rgba(139,92,246,.03))'
+        : C.surface,
+      border: `1px solid ${hero ? 'rgba(99,102,241,.28)' : C.border}`,
+      borderRadius: 12, padding: '18px 22px',
+      animation: 'fadeIn .4s ease forwards', willChange: 'opacity, transform', ...style,
+    }}>{children}</div>
+  );
+}
+
+function CardLabel({ children }) {
+  return (
+    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.4px', textTransform: 'uppercase', color: C.accent2, marginBottom: 8 }}>
+      {children}
+    </div>
+  );
+}
+
+/* ── Step ── */
+function Step({ step }) {
+  const meta = STATUS_META[step.status] || STATUS_META.pending;
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 12,
+      background: C.surface, borderRadius: 12, padding: '14px 18px',
+      border: `1px solid ${step.status === 'running' ? 'rgba(108,99,255,.45)'
+                          : step.status === 'done'    ? 'rgba(52,211,153,.3)'
+                          : step.status === 'error'   ? 'rgba(248,113,113,.3)'
+                          : C.border}`,
+      transition: 'border-color .3s',
+      animation: 'fadeIn .3s ease forwards', willChange: 'opacity, transform',
+    }}>
+      <div style={{
+        width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+        display: 'grid', placeItems: 'center',
+        background: meta.bg, border: `1px solid ${meta.color}44`,
+        fontSize: 14, color: meta.color, transition: 'all .3s',
+      }}>
+        {meta.icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '.9rem', marginBottom: 2 }}>
+          {step.label}
+          {step.status === 'running' && <Spinner />}
+        </div>
+        <div style={{ fontSize: '.73rem', color: C.accent3, fontFamily: 'Consolas, monospace', marginBottom: step.result ? 4 : 0 }}>
+          {step.tool}()
+        </div>
+        {step.result && (
+          <div style={{ fontSize: '.8rem', color: step.status === 'error' ? C.error : C.success, wordBreak: 'break-word', lineHeight: 1.5 }}>
+            {step.result}
+          </div>
+        )}
+        {!step.result && step.status === 'pending' && (
+          <div style={{ fontSize: '.78rem', color: C.dim, opacity: .5 }}>Waiting…</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Revenue chart ── */
+function RevenueChart({ trend }) {
+  const ref = useRef(null);
+  const chartRef = useRef(null);
+
+  useEffect(() => {
+    if (!ref.current || !trend || trend.length === 0) return;
+    if (chartRef.current) chartRef.current.destroy();
+    chartRef.current = new Chart(ref.current, {
+      type: 'bar',
+      data: {
+        labels: trend.map(d => d.year),
+        datasets: [{
+          label: 'Revenue',
+          data: trend.map(d => d.revenue),
+          backgroundColor: 'rgba(108,99,255,.55)',
+          borderColor: '#a78bfa',
+          borderWidth: 1.5,
+          borderRadius: 5,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => ' ' + fmt(ctx.parsed.y),
+            },
+          },
+        },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,.06)' }, ticks: { color: C.dim } },
+          y: { grid: { color: 'rgba(255,255,255,.06)' }, ticks: { color: C.dim, callback: v => fmt(v) } },
+        },
+      },
+    });
+    return () => chartRef.current?.destroy();
+  }, [trend]);
+
+  if (!trend || trend.length === 0) return null;
+  return (
+    <Card style={{ marginBottom: 16 }}>
+      <CardLabel>Revenue Trend</CardLabel>
+      <div style={{ height: 160 }}>
+        <canvas ref={ref} />
+      </div>
+    </Card>
+  );
+}
+
+/* ── Financial panel ── */
+function Financials({ data }) {
+  if (!data || data.error) return null;
+  const items = [
+    { label: 'Ticker',        value: data.ticker || '—' },
+    { label: 'Sector',        value: data.sector || '—' },
+    { label: 'Market Cap',    value: fmt(data.market_cap) },
+    { label: 'P/E Ratio',     value: data.pe_ratio != null ? data.pe_ratio.toFixed(1) : '—' },
+    { label: 'EPS',           value: data.eps != null ? data.eps.toFixed(2) : '—' },
+    { label: 'Profit Margin', value: pct(data.profit_margin) },
+    { label: 'Revenue Growth',value: pct(data.revenue_growth) },
+    { label: 'Currency',      value: data.currency || '—' },
+  ];
+  return (
+    <div style={{ animation: 'fadeIn .5s ease' }}>
+      <SectionLabel>Financials</SectionLabel>
+      <RevenueChart trend={data.revenue_trend} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        {items.map(it => (
+          <Card key={it.label} style={{ padding: '12px 16px' }}>
+            <CardLabel>{it.label}</CardLabel>
+            <div style={{ fontSize: '.95rem', fontWeight: 600 }}>{it.value}</div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Wikipedia results ── */
+function Results({ data }) {
+  if (!data) return null;
+  return (
+    <div style={{ animation: 'fadeIn .5s ease', marginTop: 28 }}>
+      <SectionLabel>Company Overview</SectionLabel>
+      <Card hero style={{ marginBottom: 14 }}>
+        <CardLabel>Summary</CardLabel>
+        <div style={{ fontSize: '.93rem', lineHeight: 1.75 }}>{data.extract || '—'}</div>
+      </Card>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+        <Card>
+          <CardLabel>Entity</CardLabel>
+          <div style={{ fontSize: '.93rem' }}>{data.title || '—'}</div>
+        </Card>
+        <Card>
+          <CardLabel>Classification</CardLabel>
+          <div style={{ fontSize: '.93rem' }}>{data.description || '—'}</div>
+        </Card>
+      </div>
+      <Card>
+        <CardLabel>Source</CardLabel>
+        <div style={{ fontSize: '.87rem', marginBottom: 8 }}>
+          Wikipedia REST API via <code>fetch_company_info</code>
+        </div>
+        {data.url && (
+          <a href={data.url} target="_blank" rel="noreferrer" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            color: C.accent3, textDecoration: 'none', fontSize: '.82rem', fontWeight: 600,
+            padding: '5px 12px', borderRadius: 8, border: '1px solid rgba(56,189,248,.3)',
+          }}>
+            ↗ View on Wikipedia
+          </a>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/* ── Chat panel ── */
+function ChatPanel({ messages, phase }) {
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const canChat = phase === 'chat';
+
+  async function send(e) {
+    e.preventDefault();
+    if (!input.trim() || !canChat || sending) return;
+    setSending(true);
+    const msg = input.trim();
+    setInput('');
+    await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg }),
+    });
+    setSending(false);
+  }
+
+  return (
+    <div style={{
+      background: C.surface, border: `1px solid ${C.border}`,
+      borderRadius: 12, display: 'flex', flexDirection: 'column',
+      overflow: 'hidden', animation: 'fadeIn .4s ease',
+    }}>
+      {/* header */}
+      <div style={{
+        padding: '12px 18px', borderBottom: `1px solid ${C.border}`,
+        display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1.6px', textTransform: 'uppercase', color: C.accent2 }}>
+          Ask the Agent
+        </span>
+        <div style={{ flex: 1 }} />
+        {!canChat && (
+          <span style={{ fontSize: 10, color: C.dim }}>Available after research completes</span>
+        )}
+        {canChat && (
+          <Badge style={{ background: 'rgba(52,211,153,.1)', border: '1px solid rgba(52,211,153,.3)', color: C.success }}>
+            <LiveDot done={false} /> Ready
+          </Badge>
+        )}
+      </div>
+
+      {/* messages */}
+      <div style={{
+        flex: 1, overflowY: 'auto', padding: '14px 18px',
+        display: 'flex', flexDirection: 'column', gap: 10,
+        minHeight: 160, maxHeight: 340,
+      }}>
+        {messages.length === 0 && (
+          <div style={{ color: C.dim, fontSize: '.83rem', opacity: .55, margin: 'auto' }}>
+            {canChat ? 'Ask a follow-up question…' : 'Chat unlocks after research completes.'}
+          </div>
+        )}
+        {messages.map((m, i) => {
+          const isUser = m.role === 'user';
+          return (
+            <div key={i} style={{
+              display: 'flex', flexDirection: 'column',
+              alignItems: isUser ? 'flex-end' : 'flex-start',
+              animation: 'fadeIn .25s ease',
+            }}>
+              <div style={{
+                maxWidth: '82%', padding: '9px 14px', borderRadius: isUser ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                background: isUser ? 'rgba(108,99,255,.25)' : C.surface2,
+                border: `1px solid ${isUser ? 'rgba(108,99,255,.4)' : C.border}`,
+                fontSize: '.88rem', lineHeight: 1.55, color: C.text,
+              }}>
+                {m.content}
+              </div>
+              <div style={{ fontSize: '.7rem', color: C.dim, marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>
+                {isUser ? 'You' : 'Agent'} · {m.ts}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* input */}
+      <form onSubmit={send} style={{
+        padding: '12px 14px', borderTop: `1px solid ${C.border}`,
+        display: 'flex', gap: 8, flexShrink: 0,
+      }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          disabled={!canChat || sending}
+          placeholder={canChat ? 'Ask a follow-up…' : 'Waiting for research to complete…'}
+          style={{
+            flex: 1, background: C.surface2, color: C.text,
+            border: `1px solid ${C.border}`, borderRadius: 8,
+            padding: '9px 13px', fontSize: '.9rem', fontFamily: 'inherit',
+            outline: 'none', opacity: canChat ? 1 : .45,
+            transition: 'border-color .2s',
+          }}
+          onFocus={e => { if (canChat) e.target.style.borderColor = C.accent; }}
+          onBlur={e => e.target.style.borderColor = C.border}
+        />
+        <button type="submit" disabled={!input.trim() || !canChat || sending} style={{
+          background: canChat && input.trim() ? 'linear-gradient(135deg,#6c63ff,#a78bfa)' : C.surface2,
+          color: '#fff', border: 'none', borderRadius: 8,
+          padding: '9px 18px', fontWeight: 700, fontSize: '.9rem',
+          cursor: canChat && input.trim() && !sending ? 'pointer' : 'not-allowed',
+          opacity: canChat && input.trim() && !sending ? 1 : .4,
+          transition: 'opacity .2s, background .2s', flexShrink: 0,
+        }}>
+          {sending ? '…' : '↑'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/* ── Logs panel ── */
+function LogsPanel({ logs }) {
+  const bottomRef = useRef(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
+
+  return (
+    <div style={{
+      background: C.surface2, border: `1px solid ${C.border}`,
+      borderRadius: 12, display: 'flex', flexDirection: 'column',
+      height: '100%', minHeight: 400, overflow: 'hidden',
+    }}>
+      {/* header */}
+      <div style={{
+        padding: '12px 16px', borderBottom: `1px solid ${C.border}`,
+        display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1.6px', textTransform: 'uppercase', color: C.dim }}>Agent Logs</span>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 10, color: C.dim }}>{logs.length} lines</span>
+        <div style={{ width: 6, height: 6, borderRadius: '50%', background: logs.length > 0 ? C.success : C.dim }} />
+      </div>
+      {/* body */}
+      <div style={{
+        flex: 1, overflowY: 'auto', padding: '10px 14px',
+        fontFamily: 'Cascadia Code, Consolas, monospace', fontSize: '.73rem',
+        lineHeight: 1.8, color: C.dim,
+      }}>
+        {logs.length === 0
+          ? <div style={{ color: C.dim, opacity: .5, marginTop: 8 }}>Waiting for agent…</div>
+          : logs.map((line, i) => {
+              const isError   = line.includes('error') || line.includes('✗');
+              const isSuccess = line.includes('✓') || line.includes('done');
+              const isLLM     = line.includes('LLM →');
+              const color = isError ? C.error : isSuccess ? C.success : isLLM ? C.accent2 : C.dim;
+              return (
+                <div key={i} style={{ color, wordBreak: 'break-word', borderBottom: '1px solid rgba(255,255,255,.03)', paddingBottom: 2 }}>
+                  {line}
+                </div>
+              );
+            })
+        }
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
+/* ── Query form ── */
+const EXAMPLES = [
+  'Research the ownership structure of Tata Sons',
+  'Find key details about Reliance Industries',
+  'Who owns Apple Inc?',
+];
+
+function QueryForm({ onSubmit }) {
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!query.trim()) return;
+    setLoading(true);
+    await fetch('/api/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: query.trim() }),
+    });
+    onSubmit(query.trim());
+  }
+
+  return (
+    <div style={{ animation: 'fadeIn .4s ease', willChange: 'opacity, transform' }}>
+      <SectionLabel>Your Query</SectionLabel>
+      <form onSubmit={handleSubmit}>
+        <textarea
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="e.g. Research the ownership structure of Tata Sons…"
+          rows={3}
+          style={{
+            width: '100%', background: C.surface2, color: C.text,
+            border: `1px solid ${C.border}`, borderRadius: 10,
+            padding: '13px 15px', fontSize: '.93rem', resize: 'vertical',
+            fontFamily: 'inherit', outline: 'none', marginBottom: 12,
+            transition: 'border-color .2s',
+          }}
+          onFocus={e => e.target.style.borderColor = C.accent}
+          onBlur={e => e.target.style.borderColor = C.border}
+        />
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+          {EXAMPLES.map(ex => (
+            <button key={ex} type="button" onClick={() => setQuery(ex)} style={{
+              background: 'rgba(108,99,255,.1)', border: '1px solid rgba(108,99,255,.3)',
+              color: C.accent2, borderRadius: 20, padding: '4px 13px',
+              fontSize: '.77rem', cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+              {ex}
+            </button>
+          ))}
+        </div>
+        <button type="submit" disabled={!query.trim() || loading} style={{
+          background: loading ? C.surface2 : 'linear-gradient(135deg, #6c63ff, #a78bfa)',
+          color: '#fff', border: 'none', borderRadius: 10,
+          padding: '11px 30px', fontSize: '1rem', fontWeight: 700,
+          cursor: query.trim() && !loading ? 'pointer' : 'not-allowed',
+          opacity: query.trim() && !loading ? 1 : .5, transition: 'opacity .2s',
+        }}>
+          {loading ? 'Starting…' : '▶ Run Research'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/* ── Root App ── */
+function App() {
+  const [status, setStatus] = useState(null);
+  const [ts, setTs]         = useState('');
+  const timerRef            = useRef(null);
+
+  useEffect(() => {
+    async function poll() {
+      try {
+        const res  = await fetch('/api/status');
+        const data = await res.json();
+        setStatus(data);
+        setTs(new Date().toLocaleTimeString());
+        if (data.completed) clearInterval(timerRef.current);
+      } catch (_) {}
+    }
+    poll();
+    timerRef.current = setInterval(poll, 1500);
+    return () => clearInterval(timerRef.current);
+  }, []);
+
+  const phase        = status?.phase          ?? 'waiting';
+  const title        = status?.title          ?? 'Ready';
+  const steps        = status?.steps          ?? [];
+  const data         = status?.company_data   ?? null;
+  const finData      = status?.financial_data ?? null;
+  const done         = status?.completed      ?? false;
+  const logs         = status?.logs           ?? [];
+  const chatMessages = status?.chat_messages  ?? [];
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{
+        background: 'linear-gradient(135deg,#0f0c29 0%,#1a1558 45%,#302b63 100%)',
+        padding: '32px 48px 26px',
+        borderBottom: '1px solid rgba(108,99,255,.25)',
+        position: 'relative', overflow: 'hidden',
+      }}>
+        <div style={{ position:'absolute', top:-80, right:-100, width:500, height:500, background:'radial-gradient(circle,rgba(99,102,241,.15) 0%,transparent 65%)', borderRadius:'50%', pointerEvents:'none' }} />
+        <div style={{ position:'absolute', top:14, right:48, fontSize:11, color:'rgba(255,255,255,.3)', textAlign:'right', lineHeight:1.9 }}>
+          <div>{ts && `Updated ${ts}`}</div>
+          <div>Prefab module: <code>dashboard/web.x64</code></div>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
+          <Badge style={{ background:'rgba(108,99,255,.15)', border:'1px solid rgba(108,99,255,.4)', color:C.accent2 }}>
+            ⬡ Prefab Package
+          </Badge>
+          <Badge style={{ background:'rgba(52,211,153,.1)', border:'1px solid rgba(52,211,153,.35)', color:C.success }}>
+            <LiveDot done={done} />
+            {done ? 'Done' : 'Live'}
+          </Badge>
+        </div>
+        <h1 style={{ fontSize:'clamp(1.5rem,3.5vw,2.4rem)', fontWeight:800, color:'#fff', letterSpacing:'-.5px', position:'relative', zIndex:1 }}>
+          {phase === 'waiting' ? 'Prefab Research Dashboard' : title}
+        </h1>
+        <p style={{ color:'#a5b4fc', fontSize:'.92rem', marginTop:6, position:'relative', zIndex:1 }}>
+          {phase === 'waiting' ? 'Enter a query below to start the agent.'
+           : phase === 'chat'    ? 'Research complete — ask follow-up questions below.'
+           : done                ? 'All steps complete.'
+           : 'Updating live as each step completes…'}
+        </p>
+      </div>
+
+      {/* Body */}
+      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px 64px' }}>
+        {phase === 'waiting' ? (
+          <div style={{ maxWidth: 700 }}>
+            <QueryForm onSubmit={() => {}} />
+          </div>
+        ) : (
+          /* Two-column layout */
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 28, alignItems: 'start' }}>
+
+            {/* LEFT — main content */}
+            <div>
+              <SectionLabel>Agent Progress</SectionLabel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 32 }}>
+                {steps.length === 0
+                  ? <div style={{ color: C.dim, fontSize: '.87rem', padding: '10px 0' }}>Starting…</div>
+                  : steps.map(s => <Step key={s.id} step={s} />)
+                }
+              </div>
+
+              {finData && <Financials data={finData} />}
+              {data && <Results data={data} />}
+
+              <div style={{ marginTop: 28 }}>
+                <SectionLabel>Chat</SectionLabel>
+                <ChatPanel messages={chatMessages} phase={phase} />
+              </div>
+            </div>
+
+            {/* RIGHT — logs */}
+            <div style={{ position: 'sticky', top: 24 }}>
+              <SectionLabel>Developer Logs</SectionLabel>
+              <LogsPanel logs={logs} />
+            </div>
+
+          </div>
+        )}
+
+        {/* Footer */}
+        <div style={{
+          marginTop: 48, paddingTop: 20, borderTop: `1px solid ${C.border}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexWrap: 'wrap', gap: 10, fontSize: '.73rem', color: C.dim,
+        }}>
+          <span>Prefab package: <code>company-dashboard v1.0.0</code> · module: <code>dashboard</code></span>
+          <span style={{ color: C.accent2, fontWeight: 600 }}>⬡ web.x64</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
