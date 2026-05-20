@@ -290,7 +290,7 @@ function Results({ data }) {
 }
 
 /* ── Chat panel ── */
-function ChatPanel({ messages, phase }) {
+function ChatPanel({ messages, phase, query }) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const bottomRef = useRef(null);
@@ -339,6 +339,18 @@ function ChatPanel({ messages, phase }) {
           </Badge>
         )}
       </div>
+
+      {/* pinned query context */}
+      {query && (
+        <div style={{
+          padding: '8px 18px', borderBottom: `1px solid ${C.border}`,
+          background: 'rgba(108,99,255,.07)', flexShrink: 0,
+          display: 'flex', alignItems: 'flex-start', gap: 8,
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: C.accent2, flexShrink: 0, marginTop: 1 }}>Query</span>
+          <span style={{ fontSize: '.82rem', color: C.text, lineHeight: 1.5 }}>{query}</span>
+        </div>
+      )}
 
       {/* messages */}
       <div style={{
@@ -608,7 +620,7 @@ function App() {
 
               <div style={{ marginTop: 28 }}>
                 <SectionLabel>Chat</SectionLabel>
-                <ChatPanel messages={chatMessages} phase={phase} />
+                <ChatPanel messages={chatMessages} phase={phase} query={title} />
               </div>
             </div>
 
