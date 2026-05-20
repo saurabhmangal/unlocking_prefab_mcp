@@ -96,7 +96,8 @@ async def wait_for_query() -> str:
 
 # ── LLM helper ────────────────────────────────────────────────────────────────
 
-async def llm(system_msg: str, user_msg: str, timeout: int = 120) -> str:
+async def llm(system_msg: str, user_msg: str, timeout: int = 120,
+              max_tokens: int = 200) -> str:
     loop = asyncio.get_event_loop()
     response = await asyncio.wait_for(
         loop.run_in_executor(
@@ -107,7 +108,7 @@ async def llm(system_msg: str, user_msg: str, timeout: int = 120) -> str:
                     {"role": "system", "content": system_msg},
                     {"role": "user",   "content": user_msg},
                 ],
-                max_tokens=200,
+                max_tokens=max_tokens,
             ),
         ),
         timeout=timeout,
@@ -327,21 +328,30 @@ No explanations."""
                     print("  Research done — chat mode active at http://localhost:5000")
                     print("=" * 60)
 
-                    chat_system = f"""You are a helpful financial research assistant.
-The user originally asked: "{user_query}"
+                    fin_summary = ""
+                    if financial_data and not financial_data.get("error"):
+                        fin_summary = (
+                            f"ticker={financial_data.get('ticker')}, "
+                            f"market_cap={financial_data.get('market_cap')}, "
+                            f"pe={financial_data.get('pe_ratio')}, "
+                            f"eps={financial_data.get('eps')}, "
+                            f"margin={financial_data.get('profit_margin')}, "
+                            f"sector={financial_data.get('sector')}, "
+                            f"revenue_trend={financial_data.get('revenue_trend')}"
+                        )
+                    wiki_summary = company_data.get("extract", "")[:200] if company_data else ""
 
-Research already completed:
-- Wikipedia data: {json.dumps(company_data)[:400] if company_data else 'N/A'}
-- Financial data: {json.dumps(financial_data)[:400] if financial_data else 'N/A'}
+                    chat_system = f"""You are a financial research assistant. Answer questions about the researched company.
 
-Available tools (call if you need fresh data):
-{tools_block}
+Company: {company_data.get('title', '') if company_data else user_query}
+Overview: {wiki_summary}
+Financials: {fin_summary or 'N/A'}
 
-For follow-up questions:
-- If you can answer from the data above, respond with: CHAT_RESPONSE: <your answer>
-- If you need new data (different company, different metric), use: FUNCTION_CALL: <tool>|<args>
-- Keep responses concise and factual.
-Respond with EXACTLY ONE line."""
+Rules:
+- Answer from the data above when possible: CHAT_RESPONSE: <answer>
+- If user asks about a DIFFERENT company or missing metric, fetch it: FUNCTION_CALL: fetch_financial_data|<ticker>
+- Keep answers to 2-3 sentences.
+- Respond with ONE line only: CHAT_RESPONSE: ... or FUNCTION_CALL: ..."""
 
                     chat_input_file = os.path.join(DATA_DIR, "chat_input.json")
 
@@ -373,7 +383,8 @@ Respond with EXACTLY ONE line."""
                             for m in chat_messages[-6:]  # last 3 turns
                         )
                         try:
-                            chat_response = await llm(chat_system, history_str, timeout=60)
+                            chat_response = await llm(chat_system, history_str,
+                                                      timeout=60, max_tokens=400)
                         except Exception as exc:
                             chat_response = f"CHAT_RESPONSE: Sorry, I encountered an error: {exc}"
 
@@ -405,7 +416,7 @@ Respond with EXACTLY ONE line."""
                                     # Summarise the tool result as agent reply
                                     summary = await llm(
                                         "Summarise this financial data in 2-3 sentences for a non-expert.",
-                                        result_str[:600], timeout=60,
+                                        result_str[:600], timeout=60, max_tokens=300,
                                     )
                                     agent_reply = summary
                                 except Exception as exc:

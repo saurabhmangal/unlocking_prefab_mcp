@@ -422,7 +422,7 @@ function LogsPanel({ logs }) {
     <div style={{
       background: C.surface2, border: `1px solid ${C.border}`,
       borderRadius: 12, display: 'flex', flexDirection: 'column',
-      height: '100%', minHeight: 400, overflow: 'hidden',
+      height: 320, overflow: 'hidden',
     }}>
       {/* header */}
       <div style={{
@@ -599,18 +599,10 @@ function App() {
           </div>
         ) : (
           /* Two-column layout */
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 28, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 28, alignItems: 'start' }}>
 
-            {/* LEFT — main content */}
+            {/* LEFT — financials, results, chat */}
             <div>
-              <SectionLabel>Agent Progress</SectionLabel>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 32 }}>
-                {steps.length === 0
-                  ? <div style={{ color: C.dim, fontSize: '.87rem', padding: '10px 0' }}>Starting…</div>
-                  : steps.map(s => <Step key={s.id} step={s} />)
-                }
-              </div>
-
               {finData && <Financials data={finData} />}
               {data && <Results data={data} />}
 
@@ -620,10 +612,26 @@ function App() {
               </div>
             </div>
 
-            {/* RIGHT — logs */}
-            <div style={{ position: 'sticky', top: 24 }}>
-              <SectionLabel>Developer Logs</SectionLabel>
-              <LogsPanel logs={logs} />
+            {/* RIGHT — steps + logs, sticky */}
+            <div style={{ position: 'sticky', top: 24, display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+              {/* Agent Progress */}
+              <div>
+                <SectionLabel>Agent Progress</SectionLabel>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {steps.length === 0
+                    ? <div style={{ color: C.dim, fontSize: '.85rem', padding: '8px 0' }}>Starting…</div>
+                    : steps.map(s => <Step key={s.id} step={s} />)
+                  }
+                </div>
+              </div>
+
+              {/* Developer Logs */}
+              <div>
+                <SectionLabel>Developer Logs</SectionLabel>
+                <LogsPanel logs={logs} />
+              </div>
+
             </div>
 
           </div>
