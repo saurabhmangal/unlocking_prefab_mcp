@@ -1,9 +1,14 @@
 """
-Agent that drives company_research_mcp.py through four research steps then
-enters an interactive chat loop so the user can ask follow-up questions.
+Company Research Agent
+Drives company_research_mcp.py through five sequential steps,
+then keeps the Prefab dashboard server alive for browsing.
 
-Starts a local Flask server (dashboard_server.py) so the React-based
-Prefab web.x64 dashboard can poll live status at http://localhost:5000.
+Steps:
+  1. fetch_company_info     – Wikipedia overview
+  2. search_ticker          – resolve stock ticker
+  3. fetch_financial_data   – yfinance metrics + charts
+  4. crud_notes             – persist data to local JSON
+  5. render_prefab_dashboard – write populated Prefab HTML asset
 """
 
 import os
@@ -24,65 +29,66 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-client = Cerebras(api_key=os.getenv("CEREBRAS_API_KEY"))
+cerebras_client = Cerebras(api_key=os.getenv("CEREBRAS_API_KEY"))
 
-MAX_ITERATIONS = 15
+MAX_AGENT_ITERATIONS = 15
 
-STEPS = [
-    {"id": 1, "tool": "fetch_company_info",      "label": "Fetch company overview from Wikipedia", "status": "pending", "result": None},
-    {"id": 2, "tool": "search_ticker",            "label": "Resolve company ticker symbol",          "status": "pending", "result": None},
-    {"id": 3, "tool": "fetch_financial_data",     "label": "Fetch financial data (yfinance)",        "status": "pending", "result": None},
-    {"id": 4, "tool": "crud_notes",               "label": "Save data to local JSON file",            "status": "pending", "result": None},
-    {"id": 5, "tool": "render_prefab_dashboard",  "label": "Render Prefab dashboard",                "status": "pending", "result": None},
+RESEARCH_STEPS = [
+    {"id": 1, "tool": "fetch_company_info",     "label": "Fetch company overview from Wikipedia", "status": "pending", "result": None},
+    {"id": 2, "tool": "search_ticker",           "label": "Resolve company ticker symbol",          "status": "pending", "result": None},
+    {"id": 3, "tool": "fetch_financial_data",    "label": "Fetch financial data (yfinance)",        "status": "pending", "result": None},
+    {"id": 4, "tool": "crud_notes",              "label": "Save data to local JSON file",            "status": "pending", "result": None},
+    {"id": 5, "tool": "render_prefab_dashboard", "label": "Render Prefab dashboard",                "status": "pending", "result": None},
 ]
 
 
-# ── Status helpers ────────────────────────────────────────────────────────────
+# ── Logging ───────────────────────────────────────────────────────────────────
 
-_log_buffer: list[str] = []
-
-
-def add_log(msg: str) -> None:
-    ts = time.strftime("%H:%M:%S")
-    _log_buffer.append(f"[{ts}] {msg}")
-    if len(_log_buffer) > 200:
-        _log_buffer.pop(0)
+_agent_logs: list[str] = []
 
 
-def write_status(steps: list, company_data=None, financial_data=None,
-                 completed: bool = False, title: str = "Research Dashboard",
-                 phase: str = "running") -> None:
+def append_log(message: str) -> None:
+    _agent_logs.append(f"[{time.strftime('%H:%M:%S')}] {message}")
+    if len(_agent_logs) > 200:
+        _agent_logs.pop(0)
+
+
+# ── Dashboard status writer ───────────────────────────────────────────────────
+
+def publish_status(steps: list, company_data=None, financial_data=None,
+                   completed: bool = False, title: str = "Research Dashboard",
+                   phase: str = "running") -> None:
     payload = {
-        "phase": phase,
-        "title": title,
-        "steps": steps,
-        "company_data": company_data,
+        "phase":          phase,
+        "title":          title,
+        "steps":          steps,
+        "company_data":   company_data,
         "financial_data": financial_data,
-        "completed": completed,
-        "logs": list(_log_buffer),
-        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "completed":      completed,
+        "logs":           list(_agent_logs),
+        "updated_at":     time.strftime("%Y-%m-%d %H:%M:%S"),
     }
     with open(os.path.join(DATA_DIR, "status.json"), "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
 
 
-def set_step(steps: list, tool_name: str, status: str, result: str | None = None) -> None:
-    for s in steps:
-        if s["tool"] == tool_name:
-            s["status"] = status
+def update_step_status(steps: list, tool_name: str, status: str, result: str | None = None) -> None:
+    for step in steps:
+        if step["tool"] == tool_name:
+            step["status"] = status
             if result is not None:
-                s["result"] = result
+                step["result"] = result
             break
 
 
-# ── Query watcher ────────────────────────────────────────────────────────────
+# ── Query listener ────────────────────────────────────────────────────────────
 
-async def wait_for_query() -> str:
-    """Write 'waiting' status, then poll until the frontend POSTs a query."""
+async def wait_for_user_query() -> str:
+    """Write 'waiting' phase, then poll until the frontend POSTs a query."""
     query_file = os.path.join(DATA_DIR, "query.json")
     if os.path.exists(query_file):
         os.remove(query_file)
-    write_status([], financial_data=None, phase="waiting", title="Ready — enter your query in the dashboard")
+    publish_status([], phase="waiting", title="Ready — enter your query in the dashboard")
     print("Waiting for query at http://localhost:5000 …")
     while True:
         if os.path.exists(query_file):
@@ -93,19 +99,19 @@ async def wait_for_query() -> str:
         await asyncio.sleep(0.4)
 
 
-# ── LLM helper ────────────────────────────────────────────────────────────────
+# ── LLM call ─────────────────────────────────────────────────────────────────
 
-async def llm(system_msg: str, user_msg: str, timeout: int = 120,
-              max_tokens: int = 200) -> str:
+async def call_llm(system_prompt: str, user_message: str,
+                   timeout: int = 120, max_tokens: int = 200) -> str:
     loop = asyncio.get_event_loop()
     response = await asyncio.wait_for(
         loop.run_in_executor(
             None,
-            lambda: client.chat.completions.create(
+            lambda: cerebras_client.chat.completions.create(
                 model="llama3.1-8b",
                 messages=[
-                    {"role": "system", "content": system_msg},
-                    {"role": "user",   "content": user_msg},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_message},
                 ],
                 max_tokens=max_tokens,
             ),
@@ -115,21 +121,19 @@ async def llm(system_msg: str, user_msg: str, timeout: int = 120,
     return response.choices[0].message.content.strip()
 
 
-# ── Argument parser ───────────────────────────────────────────────────────────
+# ── Tool argument parser ──────────────────────────────────────────────────────
 
-def parse_arguments(function_info: str, schema_properties: dict) -> dict:
-    n_props = len(schema_properties)
-    raw_parts = function_info.split("|", n_props)
-    param_values = [p.strip() for p in raw_parts[1:]]
-
+def parse_tool_arguments(raw_call: str, schema_properties: dict) -> dict:
+    """Parse a pipe-delimited FUNCTION_CALL string into a typed arguments dict."""
+    parts       = raw_call.split("|", len(schema_properties))
+    raw_values  = [p.strip() for p in parts[1:]]
     arguments: dict = {}
-    for idx, (param_name, param_info) in enumerate(schema_properties.items()):
-        if idx >= len(param_values):
-            break
-        value = param_values[idx]
-        if value == "":
+
+    for idx, (param_name, param_schema) in enumerate(schema_properties.items()):
+        if idx >= len(raw_values) or raw_values[idx] == "":
             continue
-        param_type = param_info.get("type", "string")
+        value      = raw_values[idx]
+        param_type = param_schema.get("type", "string")
         if param_type == "integer":
             arguments[param_name] = int(value)
         elif param_type == "number":
@@ -140,186 +144,175 @@ def parse_arguments(function_info: str, schema_properties: dict) -> dict:
             arguments[param_name] = [v.strip() for v in value]
         else:
             arguments[param_name] = str(value)
+
     return arguments
 
 
-# ── Main loop ─────────────────────────────────────────────────────────────────
+# ── Agent entry point ─────────────────────────────────────────────────────────
 
-async def main() -> None:
+async def run_research_agent() -> None:
     import copy
-    steps = copy.deepcopy(STEPS)
-    company_data = None
+    steps          = copy.deepcopy(RESEARCH_STEPS)
+    company_data   = None
     financial_data = None
 
-    # Start Prefab dashboard server and open browser
-    add_log("Starting Prefab dashboard server on port 5000")
-    dashboard_server.start(port=5000)
+    append_log("Starting Prefab dashboard server on port 5000")
+    dashboard_server.start_server(port=5000)
     time.sleep(0.8)
     webbrowser.open("http://localhost:5000")
-    add_log("Browser opened → http://localhost:5000")
+    append_log("Browser opened → http://localhost:5000")
     print("Dashboard: http://localhost:5000")
 
-    # Wait for the user to type a query in the browser
-    user_query = await wait_for_query()
-    add_log(f"Query received: {user_query}")
+    user_query = await wait_for_user_query()
+    append_log(f"Query received: {user_query}")
     print(f"\nQuery received: {user_query}\n")
-
     print("=" * 60)
     print("  Company Research Agent  (Prefab MCP Demo)")
     print("=" * 60)
 
-    server_params = StdioServerParameters(
+    mcp_server_params = StdioServerParameters(
         command="python",
         args=["company_research_mcp.py"],
     )
 
-    async with stdio_client(server_params) as (read, write):
+    async with stdio_client(mcp_server_params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
 
-            tools_result = await session.list_tools()
-            tools = tools_result.tools
-            print(f"Tools: {[t.name for t in tools]}\n")
+            available_tools = (await session.list_tools()).tools
+            print(f"Tools available: {[t.name for t in available_tools]}\n")
 
-            tools_description = []
-            for i, tool in enumerate(tools, 1):
-                params = tool.inputSchema
-                desc = getattr(tool, "description", "")
-                name = getattr(tool, "name", f"tool_{i}")
-                if "properties" in params:
-                    param_str = ", ".join(f"{k}: {v.get('type','?')}" for k, v in params["properties"].items())
-                else:
-                    param_str = "no parameters"
-                tools_description.append(f"{i}. {name}({param_str}) - {desc}")
+            tools_description = "\n".join(
+                f"{i}. {t.name}({', '.join(f'{k}: {v.get(\"type\",\"?\")}' for k, v in t.inputSchema.get('properties', {}).items()) or 'no parameters'}) - {getattr(t, 'description', '')}"
+                for i, t in enumerate(available_tools, 1)
+            )
 
-            tools_block = "\n".join(tools_description)
-            safe_filename = user_query.lower().replace(" ", "_")[:30].strip("_") + ".json"
+            output_filename = user_query.lower().replace(" ", "_")[:30].strip("_") + ".json"
 
-            system_prompt = f"""You are a company research agent.
+            agent_system_prompt = f"""You are a company research agent.
 The user's query is: "{user_query}"
 
 Complete ALL FIVE steps in order:
 
-STEP 1 – Identify the main company/entity in the query and call:
+STEP 1 – Identify the main company/entity and call:
    FUNCTION_CALL: fetch_company_info|<company name>
 
-STEP 2 – Find the stock ticker for the company:
+STEP 2 – Find the stock ticker:
    FUNCTION_CALL: search_ticker|<company name>
 
 STEP 3 – Fetch financial data using the ticker from Step 2:
-   FUNCTION_CALL: fetch_financial_data|<ticker symbol from step 2>
+   FUNCTION_CALL: fetch_financial_data|<ticker symbol>
 
-STEP 4 – Save the Wikipedia result from Step 1 to a file:
-   FUNCTION_CALL: crud_notes|create|{safe_filename}|<full JSON from step 1 on a single line>
+STEP 4 – Save the Wikipedia result from Step 1:
+   FUNCTION_CALL: crud_notes|create|{output_filename}|<full JSON from step 1 on a single line>
 
 STEP 5 – Render the dashboard:
-   FUNCTION_CALL: render_prefab_dashboard|{user_query[:60]}|{safe_filename}|web.x64
+   FUNCTION_CALL: render_prefab_dashboard|{user_query[:60]}|{output_filename}|web.x64
 
 Then give: FINAL_ANSWER: [done]
 
 Available tools:
-{tools_block}
+{tools_description}
 
 Respond with EXACTLY ONE line: FUNCTION_CALL: ... or FINAL_ANSWER: [done]
 No explanations."""
 
-            add_log(f"MCP server ready — tools: {[t.name for t in tools]}")
-            write_status(steps, title=user_query)
+            append_log(f"MCP server ready — {len(available_tools)} tools loaded")
+            publish_status(steps, title=user_query)
 
-            iteration         = 0
-            last_response     = None
-            iteration_history = []
-            current_query     = user_query
+            iteration        = 0
+            last_tool_result = None
+            tool_call_history: list[str] = []
 
-            while iteration < MAX_ITERATIONS:
-                print(f"\n{'─'*50}  Iteration {iteration + 1}")
+            while iteration < MAX_AGENT_ITERATIONS:
+                print(f"\n{'─' * 50}  Iteration {iteration + 1}")
 
-                user_msg = (
-                    current_query if last_response is None
-                    else user_query + "\n\nProgress:\n" + "\n".join(iteration_history) + "\n\nNext step?"
+                user_message = (
+                    user_query if last_tool_result is None
+                    else user_query + "\n\nProgress:\n" + "\n".join(tool_call_history) + "\n\nNext step?"
                 )
 
-                add_log(f"Iteration {iteration + 1}: calling LLM…")
+                append_log(f"Iteration {iteration + 1}: calling LLM…")
                 try:
-                    response_text = await llm(system_prompt, user_msg)
-                    add_log(f"LLM → {response_text[:120]}")
-                    print(f"LLM → {response_text}")
+                    llm_response = await call_llm(agent_system_prompt, user_message)
+                    append_log(f"LLM → {llm_response[:120]}")
+                    print(f"LLM → {llm_response}")
                 except TimeoutError:
-                    add_log("LLM timed out; retrying…")
-                    print("LLM timed out; retrying…")
+                    append_log("LLM timed out; retrying…")
                     iteration += 1
                     continue
                 except Exception as exc:
-                    add_log(f"LLM error: {exc}")
+                    append_log(f"LLM error: {exc}")
                     print(f"LLM error: {exc}")
                     break
 
-                for line in response_text.splitlines():
+                # Extract the first valid directive line
+                for line in llm_response.splitlines():
                     line = line.strip()
                     if line.startswith("FUNCTION_CALL:") or line.startswith("FINAL_ANSWER:"):
-                        response_text = line
+                        llm_response = line
                         break
 
-                if response_text.startswith("FUNCTION_CALL:"):
-                    _, function_info = response_text.split(":", 1)
-                    function_info = function_info.strip()
-                    func_name = function_info.split("|")[0].strip()
+                if llm_response.startswith("FUNCTION_CALL:"):
+                    _, raw_call = llm_response.split(":", 1)
+                    raw_call  = raw_call.strip()
+                    tool_name = raw_call.split("|")[0].strip()
 
-                    tool = next((t for t in tools if t.name == func_name), None)
-                    if not tool:
-                        print(f"Unknown tool: {func_name!r}")
-                        iteration_history.append(f"Error: unknown tool '{func_name}'")
+                    matched_tool = next((t for t in available_tools if t.name == tool_name), None)
+                    if not matched_tool:
+                        append_log(f"Unknown tool: {tool_name!r}")
+                        tool_call_history.append(f"Error: unknown tool '{tool_name}'")
                         iteration += 1
                         continue
 
-                    # Mark step as running and push to dashboard
-                    add_log(f"→ calling {func_name}()")
-                    set_step(steps, func_name, "running")
-                    write_status(steps, company_data, financial_data)
+                    append_log(f"→ calling {tool_name}()")
+                    update_step_status(steps, tool_name, "running")
+                    publish_status(steps, company_data, financial_data)
 
-                    schema_properties = tool.inputSchema.get("properties", {})
                     try:
-                        arguments = parse_arguments(function_info, schema_properties)
-                        print(f"Calling {func_name}({arguments})")
-                        result = await session.call_tool(func_name, arguments=arguments)
+                        arguments  = parse_tool_arguments(raw_call, matched_tool.inputSchema.get("properties", {}))
+                        print(f"Calling {tool_name}({arguments})")
+                        tool_result = await session.call_tool(tool_name, arguments=arguments)
 
-                        result_str = (
-                            " | ".join(item.text if hasattr(item, "text") else str(item) for item in result.content)
-                            if hasattr(result, "content") and isinstance(result.content, list)
-                            else str(result)
+                        result_text = (
+                            " | ".join(
+                                item.text if hasattr(item, "text") else str(item)
+                                for item in tool_result.content
+                            )
+                            if hasattr(tool_result, "content") and isinstance(tool_result.content, list)
+                            else str(tool_result)
                         )
-                        print(f"Result → {result_str[:300]}{'…' if len(result_str) > 300 else ''}")
+                        print(f"Result → {result_text[:300]}{'…' if len(result_text) > 300 else ''}")
 
-                        # Extract typed data from tool results
-                        if func_name == "fetch_company_info":
+                        if tool_name == "fetch_company_info":
                             try:
-                                company_data = json.loads(result_str)
+                                company_data = json.loads(result_text)
                             except Exception:
                                 pass
-                        elif func_name == "fetch_financial_data":
+                        elif tool_name == "fetch_financial_data":
                             try:
-                                financial_data = json.loads(result_str)
+                                financial_data = json.loads(result_text)
                             except Exception:
                                 pass
 
-                        short_result = result_str[:120] + ("…" if len(result_str) > 120 else "")
-                        add_log(f"✓ {func_name} done: {short_result[:80]}")
-                        set_step(steps, func_name, "done", short_result)
-                        write_status(steps, company_data, financial_data)
+                        short_result = result_text[:120] + ("…" if len(result_text) > 120 else "")
+                        append_log(f"✓ {tool_name} done: {short_result[:80]}")
+                        update_step_status(steps, tool_name, "done", short_result)
+                        publish_status(steps, company_data, financial_data)
 
-                        iteration_history.append(f"Called {func_name}({arguments}) → {result_str[:200]}")
-                        last_response = result_str
+                        tool_call_history.append(f"Called {tool_name}({arguments}) → {result_text[:200]}")
+                        last_tool_result = result_text
 
                     except Exception as exc:
                         import traceback; traceback.print_exc()
-                        add_log(f"✗ {func_name} error: {exc}")
-                        set_step(steps, func_name, "error", str(exc)[:120])
-                        write_status(steps, company_data, financial_data)
-                        iteration_history.append(f"Error in {func_name}: {exc}")
+                        append_log(f"✗ {tool_name} error: {exc}")
+                        update_step_status(steps, tool_name, "error", str(exc)[:120])
+                        publish_status(steps, company_data, financial_data)
+                        tool_call_history.append(f"Error in {tool_name}: {exc}")
 
-                elif response_text.startswith("FINAL_ANSWER:"):
-                    add_log("All steps complete — dashboard ready.")
-                    write_status(steps, company_data, financial_data, completed=True)
+                elif llm_response.startswith("FINAL_ANSWER:"):
+                    append_log("All steps complete — dashboard ready.")
+                    publish_status(steps, company_data, financial_data, completed=True)
                     print("\n" + "=" * 60)
                     print("  Done — dashboard at http://localhost:5000")
                     print("=" * 60)
@@ -332,14 +325,14 @@ No explanations."""
                     break
 
                 else:
-                    print(f"Unexpected format: {response_text[:100]}")
+                    print(f"Unexpected LLM response format: {llm_response[:100]}")
 
                 iteration += 1
 
-            if iteration >= MAX_ITERATIONS:
-                add_log(f"Reached max iterations ({MAX_ITERATIONS}).")
-                print(f"Reached max iterations ({MAX_ITERATIONS}).")
+            if iteration >= MAX_AGENT_ITERATIONS:
+                append_log(f"Reached max iterations ({MAX_AGENT_ITERATIONS}).")
+                print(f"Reached max iterations ({MAX_AGENT_ITERATIONS}).")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_research_agent())
