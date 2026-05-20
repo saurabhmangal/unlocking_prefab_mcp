@@ -47,6 +47,64 @@ unlocking_prefab_mcp/
 
 ---
 
+## System Architecture
+
+The project features a decoupled, event-driven architecture bridging an LLM-powered orchestrator agent, a standardized Model Context Protocol (MCP) server, and a real-time React dashboard served via Flask.
+
+### Interactive Architecture Diagram
+A high-fidelity, interactive HTML architecture diagram is available in the repository. It contains detailed component breakdowns, code file paths, and step-by-step visualizations of all execution flows.
+
+👉 **[Open Interactive Architecture Diagram (docs/architecture.html)](file:///c:/Users/saura/Documents/Playground/unlocking_prefab_mcp/docs/architecture.html)** *(Open this file in your web browser)*
+
+### Runtime Component Interactions
+
+```mermaid
+flowchart TD
+    subgraph Client ["Client Side (Browser)"]
+        User["User / Developer"]
+        UI["React Dashboard Template<br>(web.x64/index.html)"]
+    end
+
+    subgraph Host ["Flask Server (dashboard_server.py)"]
+        Flask["Flask Web App<br>(Port 5000)"]
+    end
+
+    subgraph Disk ["Runtime Cache & Output"]
+        Cache["data/query.json<br>data/status.json<br>data/&lt;company&gt;.json"]
+        CompiledUI["prefab-dashboard-ui/output/<br>web_x64_dashboard.html"]
+    end
+
+    subgraph AI ["Autonomous Agent Subsystem"]
+        Agent["Orchestrator Agent<br>(agent_company_research.py)"]
+        LLM["Cerebras Cloud Inference<br>(llama3.1-8b)"]
+        MCP["FastMCP Server<br>(company_research_mcp.py)"]
+    end
+
+    subgraph Ext ["External Integrations"]
+        Wiki["Wikipedia REST API"]
+        YF["yfinance (Yahoo Finance)"]
+    end
+
+    User -->|1. Input Query| UI
+    UI -->|2. POST /api/query| Flask
+    Flask -->|3. Write query| Cache
+    UI -->|8. Poll /api/status| Flask
+    Flask <-->|9. Read/Write status| Cache
+    
+    Agent -->|4. Poll query| Cache
+    Agent <-->|5. Chat Completion Loop| LLM
+    Agent -->|6. Call Tool via Stdio| MCP
+    Agent -->|7. Publish logs & status| Cache
+
+    MCP <-->|CRUD notes| Cache
+    MCP <-->|fetch_company_info| Wiki
+    MCP <-->|search_ticker / fetch_financial_data| YF
+    MCP -->|render_prefab_dashboard| CompiledUI
+    CompiledUI -->|Rendered View| User
+```
+
+---
+
 ## MCP tools
 
 Defined in [`company_research_mcp.py`](company_research_mcp.py):

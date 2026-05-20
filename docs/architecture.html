@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unlocking Prefab MCP - System Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090a10;
+      --surface: #11131e;
+      --surface-hover: #171b2d;
+      --surface-active: #1d223c;
+      --border: #22273f;
+      --border-glow: rgba(108, 99, 255, 0.4);
+      --accent: #6c63ff;
+      --accent-glow: rgba(108, 99, 255, 0.15);
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --success: #34d399;
+      --success-glow: rgba(52, 211, 153, 0.15);
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --text-dark: #64748b;
+      --font-sans: 'Inter', -apple-system, sans-serif;
+      --font-mono: 'Fira Code', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      padding: 40px 24px;
+      min-height: 100vh;
+      background-image: 
+        radial-gradient(circle at 10% 20%, rgba(108, 99, 255, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(56, 189, 248, 0.05) 0%, transparent 40%);
+      background-attachment: fixed;
+    }
+
+    .container {
+      max-width: 1300px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 32px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      background: linear-gradient(135deg, #fff 30%, var(--accent2) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    header p {
+      color: var(--text-dim);
+      font-size: 1.05rem;
+      font-weight: 400;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent-glow);
+      border: 1px solid rgba(108, 99, 255, 0.35);
+      color: var(--accent2);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* Layout Grid */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 32px;
+      align-items: start;
+    }
+
+    @media (max-width: 1024px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Diagram Card */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-glow), transparent);
+    }
+
+    .card-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 20px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* SVG Interactive Diagram styling */
+    .diagram-container {
+      background: rgba(0,0,0,0.2);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 16px;
+      overflow: auto;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 520px;
+    }
+
+    svg {
+      width: 100%;
+      height: auto;
+      max-width: 820px;
+      user-select: none;
+    }
+
+    /* Interactive Diagram Node Highlights */
+    .node {
+      cursor: pointer;
+      transition: transform 0.2s ease, filter 0.2s ease;
+    }
+    
+    .node rect, .node circle, .node polygon {
+      transition: fill 0.3s ease, stroke 0.3s ease, stroke-width 0.3s ease;
+    }
+
+    .node:hover {
+      filter: drop-shadow(0 0 8px var(--accent));
+      transform: scale(1.02);
+    }
+
+    .node.active rect {
+      stroke: var(--accent2) !important;
+      stroke-width: 3px !important;
+      fill: var(--surface-active) !important;
+    }
+
+    .node.active circle {
+      stroke: var(--accent2) !important;
+      stroke-width: 3px !important;
+      fill: var(--surface-active) !important;
+    }
+
+    .flow-path {
+      stroke: var(--border);
+      stroke-width: 2;
+      stroke-dasharray: 6 4;
+      transition: stroke 0.4s ease, stroke-width 0.4s ease, stroke-dashoffset 0.4s linear;
+    }
+
+    .flow-path.active {
+      stroke: var(--accent3);
+      stroke-width: 3;
+      stroke-dasharray: 6 4;
+      animation: dash 1s linear infinite;
+    }
+
+    .flow-path.active-success {
+      stroke: var(--success);
+      stroke-width: 3;
+      stroke-dasharray: 6 4;
+      animation: dash 1s linear infinite;
+    }
+
+    @keyframes dash {
+      to {
+        stroke-dashoffset: -20;
+      }
+    }
+
+    /* Flow Control Tabs */
+    .tab-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .tab-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tab-btn:hover {
+      background: var(--surface-hover);
+      color: #fff;
+      border-color: var(--text-dark);
+    }
+
+    .tab-btn.active {
+      background: var(--accent-glow);
+      color: var(--accent2);
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(108, 99, 255, 0.15);
+    }
+
+    /* Sidebar / Inspector Panel */
+    .panel {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .inspector {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      min-height: 380px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .inspector-header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
+      margin-bottom: 16px;
+    }
+
+    .inspector-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .inspector-subtitle {
+      font-size: 0.78rem;
+      color: var(--accent3);
+      font-family: var(--font-mono);
+      margin-top: 4px;
+      word-break: break-all;
+    }
+
+    .inspector-body {
+      flex: 1;
+      font-size: 0.9rem;
+      color: var(--text-dim);
+    }
+
+    .inspector-body p {
+      margin-bottom: 12px;
+    }
+
+    .code-ref {
+      font-family: var(--font-mono);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--accent2);
+      font-size: 0.85em;
+    }
+
+    .inspector-section {
+      margin-top: 16px;
+      border-top: 1px dashed var(--border);
+      padding-top: 16px;
+    }
+
+    .inspector-section-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dark);
+      margin-bottom: 8px;
+    }
+
+    .bullet-list {
+      list-style-type: none;
+    }
+
+    .bullet-list li {
+      position: relative;
+      padding-left: 18px;
+      margin-bottom: 6px;
+    }
+
+    .bullet-list li::before {
+      content: '•';
+      position: absolute;
+      left: 6px;
+      color: var(--accent);
+      font-weight: bold;
+    }
+
+    /* Prefab structure detail */
+    .prefab-spec {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      grid-column: 1 / -1;
+    }
+
+    .prefab-spec h3 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .prefab-comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 16px;
+    }
+
+    @media (max-width: 768px) {
+      .prefab-comparison-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .comp-box {
+      background: rgba(0,0,0,0.15);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .comp-box h4 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--accent2);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .comp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    .comp-table th, .comp-table td {
+      text-align: left;
+      padding: 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .comp-table th {
+      color: var(--text-dark);
+      font-weight: 600;
+    }
+
+    .comp-table td {
+      font-family: var(--font-mono);
+      color: var(--text-dim);
+    }
+
+    /* Utility classes */
+    .pulse-text {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <div class="badge">⬡ Google Prefab + MCP</div>
+        <h1 style="margin-top: 8px;">System Architecture</h1>
+        <p>Unlocking Prefab MCP: Agentic Company Research with Real-Time UI Packaging</p>
+      </div>
+      <div>
+        <span class="badge" style="background: rgba(52, 211, 153, 0.08); border-color: rgba(52, 211, 153, 0.25); color: var(--success);">
+          <span class="pulse-text"></span>Interactive Mode Active
+        </span>
+      </div>
+    </header>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="activateFlow('default')">🛠 Components Overview</button>
+      <button class="tab-btn" onclick="activateFlow('query')">⚡ Query Flow (1-2)</button>
+      <button class="tab-btn" onclick="activateFlow('agent')">🤖 Agent Execution Loop (3)</button>
+      <button class="tab-btn" onclick="activateFlow('mcp')">🔌 MCP Tool Actions (4-6)</button>
+      <button class="tab-btn" onclick="activateFlow('rendering')">🎨 Prefab UI Packaging (7-8)</button>
+    </div>
+
+    <div class="grid">
+      <!-- Diagram -->
+      <div class="card">
+        <div class="card-title">
+          <span>Interaction Diagram</span>
+          <span style="font-size: 0.75rem; color: var(--text-dim); font-weight: 500;">Click on nodes to inspect components</span>
+        </div>
+        <div class="diagram-container">
+          <svg viewBox="0 0 800 500" width="800" height="500">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#252a45"/>
+              </marker>
+              <marker id="arrow-active" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#38bdf8"/>
+              </marker>
+              <marker id="arrow-success" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399"/>
+              </marker>
+            </defs>
+
+            <!-- Background grid lines (subtle) -->
+            <line x1="0" y1="250" x2="800" y2="250" stroke="#1c2036" stroke-dasharray="2 10" />
+            <line x1="400" y1="0" x2="400" y2="500" stroke="#1c2036" stroke-dasharray="2 10" />
+
+            <!-- PATHWAYS -->
+            <!-- User to Web UI -->
+            <path id="path-user-ui" d="M 120 70 L 120 120" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- UI to Flask API (Query Post) -->
+            <path id="path-ui-flask-query" d="M 175 140 L 265 140" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- Flask API to Cache data/query.json -->
+            <path id="path-flask-cache-query" d="M 320 170 L 320 230" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- Flask API to UI (Status Poll) -->
+            <path id="path-flask-ui-status" d="M 265 160 L 175 160" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- Agent to Cache data/query.json (Poll) -->
+            <path id="path-agent-cache-query" d="M 465 245 L 375 245" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- Agent to LLM (Cerebras) -->
+            <path id="path-agent-llm" d="M 525 210 L 525 90" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <path id="path-llm-agent" d="M 545 90 L 545 210" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- Agent to MCP Server (Stdio Bridge) -->
+            <path id="path-agent-mcp" d="M 535 285 L 535 365" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- Agent to Cache data/status.json (Publish) -->
+            <path id="path-agent-cache-status" d="M 465 265 L 375 265" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- Cache data/status.json to Flask API -->
+            <path id="path-cache-status-flask" d="M 320 230 L 320 170" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+
+            <!-- MCP to yfinance API -->
+            <path id="path-mcp-yfinance" d="M 470 415 L 345 465" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- MCP to Wikipedia REST API -->
+            <path id="path-mcp-wiki" d="M 600 415 L 705 460" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- MCP to JSON cache data/ -->
+            <path id="path-mcp-cache-json" d="M 470 380 L 375 285" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- MCP to Prefab Output rendering -->
+            <path id="path-mcp-prefab" d="M 470 400 L 225 400" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+            <!-- Prefab output dashboard to Flask serving -->
+            <path id="path-prefab-flask" d="M 155 370 L 155 180" fill="none" stroke="#252a45" stroke-width="2" marker-end="url(#arrow)" class="flow-path"/>
+
+            <!-- NODES -->
+            
+            <!-- User / Client -->
+            <g id="node-user" class="node" onclick="inspect('user')">
+              <rect x="50" y="20" width="140" height="50" rx="8" fill="#141727" stroke="#252a45" stroke-width="1.5" />
+              <text x="120" y="45" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">User / Browser</text>
+              <text x="120" y="60" fill="#94a3b8" font-size="8" text-anchor="middle">http://localhost:5000</text>
+            </g>
+
+            <!-- React UI (web.x64 asset) -->
+            <g id="node-ui" class="node" onclick="inspect('ui')">
+              <rect x="65" y="120" width="110" height="60" rx="8" fill="#141727" stroke="#252a45" stroke-width="1.5" />
+              <text x="120" y="145" fill="#38bdf8" font-size="11" font-weight="700" text-anchor="middle">React Dashboard</text>
+              <text x="120" y="160" fill="#94a3b8" font-size="9" text-anchor="middle">web.x64/index.html</text>
+            </g>
+
+            <!-- Flask Server (dashboard_server.py) -->
+            <g id="node-flask" class="node" onclick="inspect('flask')">
+              <rect x="265" y="120" width="110" height="60" rx="8" fill="#141727" stroke="#252a45" stroke-width="1.5" />
+              <text x="320" y="145" fill="#e2e8f0" font-size="11" font-weight="700" text-anchor="middle">Flask Server</text>
+              <text x="320" y="160" fill="#94a3b8" font-size="9" text-anchor="middle">dashboard_server.py</text>
+            </g>
+
+            <!-- Data Cache directory -->
+            <g id="node-data" class="node" onclick="inspect('data')">
+              <rect x="265" y="230" width="110" height="60" rx="8" fill="#141727" stroke="#252a45" stroke-width="1.5" />
+              <text x="320" y="250" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">JSON Cache</text>
+              <text x="320" y="262" fill="#94a3b8" font-size="8.5" text-anchor="middle">data/query.json</text>
+              <text x="320" y="274" fill="#94a3b8" font-size="8.5" text-anchor="middle">data/status.json</text>
+            </g>
+
+            <!-- Orchestrator Agent (agent_company_research.py) -->
+            <g id="node-agent" class="node" onclick="inspect('agent')">
+              <rect x="465" y="210" width="140" height="75" rx="8" fill="#141727" stroke="#252a45" stroke-width="1.5" />
+              <text x="535" y="235" fill="#e2e8f0" font-size="12" font-weight="700" text-anchor="middle">Research Agent</text>
+              <text x="535" y="250" fill="#a78bfa" font-size="8.5" font-family="monospace" text-anchor="middle">agent_company_research.py</text>
+              <text x="535" y="265" fill="#94a3b8" font-size="9" text-anchor="middle">Cerebras LLM Loop</text>
+            </g>
+
+            <!-- LLM Engine -->
+            <g id="node-llm" class="node" onclick="inspect('llm')">
+              <rect x="465" y="30" width="140" height="60" rx="8" fill="#141727" stroke="#252a45" stroke-width="1.5" />
+              <text x="535" y="55" fill="#e2e8f0" font-size="12" font-weight="700" text-anchor="middle">Cerebras Cloud API</text>
+              <text x="535" y="70" fill="#94a3b8" font-size="9" text-anchor="middle">llama3.1-8b</text>
+            </g>
+
+            <!-- FastMCP Server -->
+            <g id="node-mcp" class="node" onclick="inspect('mcp')">
+              <rect x="470" y="365" width="130" height="65" rx="8" fill="#141727" stroke="#252a45" stroke-width="1.5" />
+              <text x="535" y="390" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">FastMCP Server</text>
+              <text x="535" y="403" fill="#a78bfa" font-size="8.5" font-family="monospace" text-anchor="middle">company_research_mcp.py</text>
+              <text x="535" y="415" fill="#94a3b8" font-size="8" text-anchor="middle">Exposes 5 Agent Tools</text>
+            </g>
+
+            <!-- Prefab UI Output dashboard -->
+            <g id="node-prefab" class="node" onclick="inspect('prefab')">
+              <rect x="65" y="370" width="160" height="60" rx="8" fill="#141727" stroke="#252a45" stroke-width="1.5" />
+              <text x="145" y="395" fill="#e2e8f0" font-size="11" font-weight="700" text-anchor="middle">Rendered Asset Output</text>
+              <text x="145" y="410" fill="#94a3b8" font-size="9.5" text-anchor="middle">prefab-dashboard-ui/output/</text>
+            </g>
+
+            <!-- external: yfinance -->
+            <g id="node-yfinance" class="node" onclick="inspect('yfinance')">
+              <rect x="230" y="450" width="115" height="40" rx="6" fill="#11131e" stroke="#1d223c" stroke-width="1" />
+              <text x="287.5" y="474" fill="#94a3b8" font-size="10.5" font-weight="500" text-anchor="middle">Yahoo Finance</text>
+            </g>
+
+            <!-- external: wikipedia -->
+            <g id="node-wikipedia" class="node" onclick="inspect('wikipedia')">
+              <rect x="670" y="450" width="110" height="40" rx="6" fill="#11131e" stroke="#1d223c" stroke-width="1" />
+              <text x="725" y="474" fill="#94a3b8" font-size="10.5" font-weight="500" text-anchor="middle">Wikipedia API</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Inspector Panel -->
+      <div class="panel">
+        <div class="inspector">
+          <div class="inspector-header">
+            <div id="inspector-icon" style="color: var(--accent2); margin-bottom: 6px; font-size: 1.2rem;">⬡</div>
+            <div id="inspector-title" class="inspector-title">Component Inspector</div>
+            <div id="inspector-subtitle" class="inspector-subtitle">Select any module to inspect its role</div>
+          </div>
+          <div id="inspector-body" class="inspector-body">
+            <p>Click on any component or connection pathway in the system diagram to explore detailed specifications, code files, internal roles, and API integrations.</p>
+            <p>Use the tabs at the top to walk through sequential data flows like query reception, execution loops, and the Prefab UI rendering lifecycle.</p>
+          </div>
+          <div id="inspector-extra" class="inspector-section" style="display: none;">
+            <div class="inspector-section-title">Key Responsibilities</div>
+            <ul id="inspector-list" class="bullet-list">
+              <li>-</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prefab Spec Card -->
+    <div class="card prefab-spec" style="margin-top: 32px;">
+      <h3>📦 Prefab UI Package Structure (schema_version 2)</h3>
+      <p style="color: var(--text-dim); margin-bottom: 20px; font-size: 0.95rem;">
+        This project packages and compiles target-platform HTML/JS frontends inside a layout mapping the <a href="https://google.github.io/prefab/#package-structure" target="_blank" style="color: var(--accent3); text-decoration: none; font-weight: 500;">Google Prefab Package specification</a>. Instead of distributing shared binary libraries (.so / .dll), it distributes fully operational platform-specific UI modules.
+      </p>
+      
+      <div class="prefab-comparison-grid">
+        <div class="comp-box">
+          <h4>📂 Folder Structure</h4>
+          <table class="comp-table">
+            <thead>
+              <tr>
+                <th>File / Folder Path</th>
+                <th>Role</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>prefab-dashboard-ui/prefab.json</td>
+                <td>Package metadata (defines dependencies & scheme v2)</td>
+              </tr>
+              <tr>
+                <td>modules/dashboard/module.json</td>
+                <td>Module definition & entry assets declaration</td>
+              </tr>
+              <tr>
+                <td>modules/dashboard/assets/web.x64/</td>
+                <td>Target platform folder for full browser assets</td>
+              </tr>
+              <tr>
+                <td>modules/dashboard/assets/chrome.v3/</td>
+                <td>Target platform folder for Chrome extension assets</td>
+              </tr>
+              <tr>
+                <td>output/web_x64_dashboard.html</td>
+                <td>Generated final artifact running in browser</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="comp-box">
+          <h4>⚖️ Prefab vs Web Asset Mapping</h4>
+          <table class="comp-table">
+            <thead>
+              <tr>
+                <th>Google Prefab (C++ Libraries)</th>
+                <th>This UI Prefab Package</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>schema_version: 2</td>
+                <td>schema_version: 2</td>
+              </tr>
+              <tr>
+                <td>libs/&lt;platform&gt;/libfoo.so</td>
+                <td>assets/&lt;platform&gt;/index.html</td>
+              </tr>
+              <tr>
+                <td>Platform: android.arm64-v8a</td>
+                <td>Platform: web.x64 (Full Browser)</td>
+              </tr>
+              <tr>
+                <td>Platform: linux.x64</td>
+                <td>Platform: chrome.v3 (Extension Manifest)</td>
+              </tr>
+              <tr>
+                <td>Header files (.h) for imports</td>
+                <td>JSON parameters injected at placeholders</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Component database
+    const components = {
+      user: {
+        title: "User / Browser UI",
+        subtitle: "Client Side Dashboard Instance",
+        body: `
+          <p>The client interface which runs in the developer's default browser at <code class="code-ref">http://localhost:5000</code>.</p>
+          <p>It initially serves a query form, allowing the user to type in a request (e.g., <i>"Research the ownership structure of Tata Sons"</i>).</p>
+          <p>Once submitted, it transitions to a two-column real-time monitoring panel, polling the Flask server for updates, output logs, company extracts, and financial indicators.</p>
+        `,
+        responsibilities: [
+          "Present interactive inputs and queries to the user",
+          "Poll API endpoints for live status JSON cache",
+          "Render financial charts dynamically using Chart.js",
+          "Present detailed step-by-step logs reflecting internal agent status"
+        ]
+      },
+      ui: {
+        title: "React Dashboard Asset",
+        subtitle: "prefab-dashboard-ui/modules/dashboard/assets/web.x64/index.html",
+        body: `
+          <p>A reactive SPA built using React, ReactDOM, Babel (for in-browser compilation), and Chart.js.</p>
+          <p>This is the <strong>source template</strong> stored inside the Prefab package structure. It contains replacement placeholders like <code class="code-ref">__DASHBOARD_TITLE__</code>, <code class="code-ref">__DASHBOARD_DATA__</code>, and <code class="code-ref">__PLATFORM__</code>.</p>
+          <p>The MCP server reads this asset template, injects data payload, and compiles the final HTML to the output directory.</p>
+        `,
+        responsibilities: [
+          "Define styling variables, glassmorphism templates, and layouts",
+          "Expose standard interface structures for yfinance indicators and Wikipedia pages",
+          "Enable standalone local running with client-side routing based on query params"
+        ]
+      },
+      flask: {
+        title: "Flask Dashboard Server",
+        subtitle: "dashboard_server.py",
+        body: `
+          <p>A lightweight Python Flask server spawned by the agent in a background thread.</p>
+          <p>It acts as the bridge/mediator between the autonomous command-line agent subprocesses and the front-end browser viewport.</p>
+        `,
+        responsibilities: [
+          "Serve the main dashboard index.html template and compiled assets",
+          "Expose endpoint POST /api/query to cache target search requests as files",
+          "Expose endpoint GET /api/status to serve live progress, logs, and stats cached in data/status.json"
+        ]
+      },
+      data: {
+        title: "Local Cache Directory",
+        subtitle: "data/ & prefab-dashboard-ui/output/",
+        body: `
+          <p>A runtime data store directory housing operational JSON files and generated dashboards.</p>
+          <p><code class="code-ref">data/query.json</code>: Created by Flask when the user submits a search. Polled and read by the agent.</p>
+          <p><code class="code-ref">data/status.json</code>: Written by the agent periodically to report active task updates and LLM logs.</p>
+          <p><code class="code-ref">data/[company_name].json</code>: Holds persisted historical records for researched entities.</p>
+        `,
+        responsibilities: [
+          "Decouple the asynchronous client polling from the agent's LLM processing cycle",
+          "Store local copies of crawled data to avoid repetitive API query limits",
+          "House status.json with updated logs and timelines"
+        ]
+      },
+      agent: {
+        title: "Company Research Agent",
+        subtitle: "agent_company_research.py",
+        body: `
+          <p>The orchestrator and brain of the system. Runs in the console and coordinates the entire workflow.</p>
+          <p>Uses Cerebras Cloud API for ultra-fast completions using the <code class="code-ref">llama3.1-8b</code> model.</p>
+          <p>Operates in a loop, converting LLM text suggestions into concrete tool executions through the Stdio Client session linked to the MCP server.</p>
+        `,
+        responsibilities: [
+          "Launch Flask server on startup and spawn default web browser instance",
+          "Poll data/query.json to capture new research objectives",
+          "Establish an active Stdio connection with the FastMCP Server",
+          "Execute the 5-step agentic loop by feeding intermediate tool outputs back to LLM",
+          "Maintain live developer logs and publish state increments to status.json"
+        ]
+      },
+      llm: {
+        title: "Llama 3.1 LLM",
+        subtitle: "Cerebras Cloud Inference Endpoint",
+        body: `
+          <p>Provides zero-latency text intelligence to guide the research pipeline.</p>
+          <p>The LLM receives instructions enforcing a strict 5-step sequence, along with available tool descriptions.</p>
+          <p>It processes input status updates and returns structured commands like <code class="code-ref">FUNCTION_CALL: fetch_company_info|Tata Sons</code> or <code class="code-ref">FINAL_ANSWER: [done]</code>.</p>
+        `,
+        responsibilities: [
+          "Parse fuzzy user inputs and determine the correct target company name",
+          "Process unstructured summaries to identify stock tickers and request metrics",
+          "Format raw responses into parameters matching the MCP tool schemas"
+        ]
+      },
+      mcp: {
+        title: "FastMCP Server",
+        subtitle: "company_research_mcp.py",
+        body: `
+          <p>A FastMCP Model Context Protocol server exposing Python functions as actionable tools to the LLM agent.</p>
+          <p>Allows standard stdio transport protocols to invoke capabilities spanning internet fetch, financial analytics, local file crud, and HTML compiling.</p>
+        `,
+        responsibilities: [
+          "Expose fetch_company_info tool (resolves Wikipedia details)",
+          "Expose search_ticker tool (identifies stock ticker using yfinance)",
+          "Expose fetch_financial_data tool (gathers detailed metrics/balance sheet from yfinance)",
+          "Expose crud_notes tool (handles file creation, updates, and deletes in data/)",
+          "Expose render_prefab_dashboard tool (injects data into the Prefab template and compiles output)"
+        ]
+      },
+      prefab: {
+        title: "Compiled Asset Output",
+        subtitle: "prefab-dashboard-ui/output/web_x64_dashboard.html",
+        body: `
+          <p>The completed dashboard, compiled with the output details injected.</p>
+          <p>Created by the <code class="code-ref">render_prefab_dashboard</code> tool. This file is written inside the Prefab package's output directory, mapping the standard packaging results of a compiled module asset.</p>
+          <p>This file can be opened directly in any browser for offline presentation, containing the embedded React scripts and company datasets.</p>
+        `,
+        responsibilities: [
+          "Store self-contained corporate research dashboard with all charts embedded",
+          "Serve as the final artifact produced by the Prefab UI compilation process"
+        ]
+      },
+      yfinance: {
+        title: "Yahoo Finance API Wrapper",
+        subtitle: "yfinance (Python Library)",
+        body: `
+          <p>Integrates with Yahoo Finance public endpoints to crawl market indicators, corporate sectors, margins, and historical trends.</p>
+          <p>Used by the MCP tools <code class="code-ref">search_ticker</code> and <code class="code-ref">fetch_financial_data</code>.</p>
+        `,
+        responsibilities: [
+          "Resolve fuzzy company names to active stock tickers",
+          "Extract financial metrics (P/E ratio, Market Cap, EPS, margins)",
+          "Provide historical revenue trends for balance sheets"
+        ]
+      },
+      wikipedia: {
+        title: "Wikipedia Rest API",
+        subtitle: "api.wikipedia.org REST v1",
+        body: `
+          <p>Used to pull initial descriptive context and summaries about target entities.</p>
+          <p>Invoked by the <code class="code-ref">fetch_company_info</code> tool inside the MCP Server via python's standard urllib requests.</p>
+        `,
+        responsibilities: [
+          "Query page summaries for generic entities",
+          "Extract description classification and desktop URL for reference cards"
+        ]
+      }
+    };
+
+    // Flow path configuration
+    const flows = {
+      default: {
+        activeNodes: [],
+        activePaths: [],
+        title: "System Architecture",
+        subtitle: "Components Overview",
+        body: "<p>Click on any component or connection pathway in the system diagram to explore detailed specifications, code files, internal roles, and API integrations.</p><p>Use the tabs at the top to walk through sequential data flows like query reception, execution loops, and the Prefab UI rendering lifecycle.</p>"
+      },
+      query: {
+        activeNodes: ['node-user', 'node-ui', 'node-flask', 'node-data'],
+        activePaths: ['path-user-ui', 'path-ui-flask-query', 'path-flask-cache-query'],
+        title: "1. Query Initiation Flow",
+        subtitle: "User input to Local Cache",
+        body: `
+          <p>This flow maps how a research task begins:</p>
+          <ol class="bullet-list" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <li><strong>User input:</strong> The user visits <code class="code-ref">http://localhost:5000</code> and enters a search query (e.g. <i>"Who owns Apple Inc?"</i>) in the UI.</li>
+            <li><strong>API Submission:</strong> The React app posts the query to the Flask Server endpoint <code class="code-ref">POST /api/query</code>.</li>
+            <li><strong>Cache Write:</strong> Flask writes this query to the local cache directory as <code class="code-ref">data/query.json</code>.</li>
+          </ol>
+        `
+      },
+      agent: {
+        activeNodes: ['node-agent', 'node-data', 'node-llm'],
+        activePaths: ['path-agent-cache-query', 'path-agent-llm', 'path-llm-agent', 'path-agent-cache-status', 'path-cache-status-flask', 'path-flask-ui-status'],
+        title: "2. Agent Verification Loop",
+        subtitle: "Subprocess poll & Cerebras LLM validation",
+        body: `
+          <p>Once a query is written to the cache, the agent kicks off the AI Loop:</p>
+          <ol class="bullet-list" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <li><strong>Agent Polls:</strong> The orchestrator agent detects a new query in <code class="code-ref">data/query.json</code>.</li>
+            <li><strong>LLM Consulting:</strong> The agent calls the Cerebras API (Llama 3.1) with the query and the current state, requesting the next instruction.</li>
+            <li><strong>Status Update:</strong> The agent updates logs and publishes status reports to <code class="code-ref">data/status.json</code>.</li>
+            <li><strong>UI updates:</strong> The Flask server serves <code class="code-ref">status.json</code> to the frontend React dashboard which polls every 1.5 seconds, displaying real-time developer logs and active indicators.</li>
+          </ol>
+        `
+      },
+      mcp: {
+        activeNodes: ['node-agent', 'node-mcp', 'node-wikipedia', 'node-yfinance'],
+        activePaths: ['path-agent-mcp', 'path-mcp-wiki', 'path-mcp-yfinance'],
+        title: "3. MCP Tool Executions",
+        subtitle: "Standardised tool actions",
+        body: `
+          <p>The agent executes steps using local tools via the FastMCP server subprocess:</p>
+          <ol class="bullet-list" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <li><strong>Tool Request:</strong> Based on the LLM's command, the agent calls the appropriate tool over the stdio MCP bridge.</li>
+            <li><strong>Wikipedia Fetch:</strong> <code class="code-ref">fetch_company_info</code> queries the Wikipedia REST API for background information.</li>
+            <li><strong>Financial Lookup:</strong> <code class="code-ref">search_ticker</code> and <code class="code-ref">fetch_financial_data</code> query yfinance endpoints to get live market stats, EPS, pe ratios, and multi-year revenue trends.</li>
+          </ol>
+        `
+      },
+      rendering: {
+        activeNodes: ['node-mcp', 'node-data', 'node-prefab', 'node-flask', 'node-ui'],
+        activePaths: ['path-mcp-cache-json', 'path-mcp-prefab', 'path-prefab-flask', 'path-flask-ui-status'],
+        title: "4. Prefab UI Rendering & Compilation",
+        subtitle: "Injecting data & generating standalone outputs",
+        body: `
+          <p>The final steps compile the Prefab package and show results:</p>
+          <ol class="bullet-list" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <li><strong>Persist data:</strong> <code class="code-ref">crud_notes</code> creates a company JSON file (e.g. <code class="code-ref">data/apple_inc.json</code>).</li>
+            <li><strong>Injected rendering:</strong> <code class="code-ref">render_prefab_dashboard</code> takes the React template, injects the JSON payload directly into placeholders, and compiles the final dashboard.</li>
+            <li><strong>Output File:</strong> The output is written to <code class="code-ref">prefab-dashboard-ui/output/web_x64_dashboard.html</code>.</li>
+            <li><strong>Browser Redirect:</strong> The agent finalizes the loop, and the user's dashboard renders the rich financial metrics and Wikipedia details.</li>
+          </ol>
+        `
+      }
+    };
+
+    let activeNodeId = null;
+
+    function inspect(id) {
+      // Clear active classes on nodes
+      document.querySelectorAll('.node').forEach(node => node.classList.remove('active'));
+      
+      const comp = components[id];
+      if (!comp) return;
+
+      activeNodeId = id;
+      
+      // Highlight the clicked node in SVG
+      const nodeEl = document.getElementById(`node-${id}`);
+      if (nodeEl) nodeEl.classList.add('active');
+
+      // Update Inspector Panel
+      document.getElementById('inspector-icon').innerText = "⬡";
+      document.getElementById('inspector-title').innerText = comp.title;
+      document.getElementById('inspector-subtitle').innerText = comp.subtitle;
+      document.getElementById('inspector-body').innerHTML = comp.body;
+      
+      const listEl = document.getElementById('inspector-list');
+      listEl.innerHTML = '';
+      comp.responsibilities.forEach(resp => {
+        const li = document.createElement('li');
+        li.innerText = resp;
+        listEl.appendChild(li);
+      });
+
+      document.getElementById('inspector-extra').style.display = 'block';
+    }
+
+    function activateFlow(flowId) {
+      // Clear node highlights
+      document.querySelectorAll('.node').forEach(node => node.classList.remove('active'));
+      // Clear path highlights
+      document.querySelectorAll('.flow-path').forEach(path => {
+        path.classList.remove('active');
+        path.classList.remove('active-success');
+      });
+
+      const flow = flows[flowId];
+      if (!flow) return;
+
+      // Highlight active flow tab
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = Array.from(document.querySelectorAll('.tab-btn')).find(btn => btn.innerText.includes(flow.title) || btn.innerText.includes(flowId === 'default' ? 'Overview' : flowId));
+      if (activeBtn) activeBtn.classList.add('active');
+
+      // Highlight nodes and paths in diagram
+      flow.activeNodes.forEach(nodeId => {
+        const node = document.getElementById(nodeId);
+        if (node) node.classList.add('active');
+      });
+
+      flow.activePaths.forEach(pathId => {
+        const path = document.getElementById(pathId);
+        if (path) {
+          if (flowId === 'rendering') {
+            path.classList.add('active-success');
+          } else {
+            path.classList.add('active');
+          }
+        }
+      });
+
+      // Update Inspector Panel
+      document.getElementById('inspector-icon').innerText = flowId === 'rendering' ? "🎨" : "⚡";
+      document.getElementById('inspector-title').innerText = flow.title;
+      document.getElementById('inspector-subtitle').innerText = flow.subtitle;
+      document.getElementById('inspector-body').innerHTML = flow.body;
+      document.getElementById('inspector-extra').style.display = 'none';
+    }
+  </script>
+</body>
+</html>
