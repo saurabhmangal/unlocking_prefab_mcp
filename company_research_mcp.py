@@ -155,18 +155,41 @@ def fetch_financial_data(company_name: str) -> str:
         ticker = yf.Ticker(ticker_sym)
         info = ticker.info or {}
 
-        # Revenue trend from annual financials
+        # Revenue trend + profit breakdown from annual financials
         revenue_trend = []
+        profit_breakdown = None
         try:
             fin = ticker.financials
             if fin is not None and not fin.empty:
+                def _val(row_name, col):
+                    if row_name in fin.index:
+                        v = fin.loc[row_name, col]
+                        if v and not (isinstance(v, float) and v != v):
+                            return int(v)
+                    return None
+
                 rev_row = fin.loc["Total Revenue"] if "Total Revenue" in fin.index else None
                 if rev_row is not None:
                     for col in list(rev_row.index)[:4]:
                         year = str(col)[:4]
                         val = rev_row[col]
-                        if val and not (isinstance(val, float) and val != val):  # skip NaN
+                        if val and not (isinstance(val, float) and val != val):
                             revenue_trend.append({"year": year, "revenue": int(val)})
+
+                # Breakdown for the most recent year
+                if revenue_trend:
+                    latest_col = list(fin.columns)[0]
+                    total    = _val("Total Revenue",    latest_col)
+                    cost_rev = _val("Cost Of Revenue",  latest_col)
+                    net_inc  = _val("Net Income",       latest_col)
+                    if total and cost_rev and net_inc:
+                        op_expense = total - cost_rev - net_inc
+                        profit_breakdown = {
+                            "year": str(latest_col)[:4],
+                            "cost_of_revenue":    abs(cost_rev),
+                            "operating_expenses": abs(op_expense) if op_expense > 0 else 0,
+                            "net_income":         abs(net_inc),
+                        }
         except Exception:
             pass
 
@@ -181,6 +204,7 @@ def fetch_financial_data(company_name: str) -> str:
             "revenue_growth": info.get("revenueGrowth"),
             "currency": info.get("currency", "USD"),
             "revenue_trend": revenue_trend,
+            "profit_breakdown": profit_breakdown,
             "fetched_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
         return json.dumps(result)
