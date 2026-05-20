@@ -5,7 +5,6 @@ import json
 import os
 import urllib.request
 import urllib.parse
-import webbrowser
 import time
 import yfinance as yf
 
@@ -237,12 +236,7 @@ def render_prefab_dashboard(title: str, data_file: str, platform: str = "web.x64
     with open(output_path, "w", encoding="utf-8") as fh:
         fh.write(html)
 
-    # Open in browser (Windows file URI)
-    uri = "file:///" + output_path.replace("\\", "/")
-    webbrowser.open(uri)
-    time.sleep(0.3)
-
-    return f"Dashboard rendered → {output_path}  (opened in browser)"
+    return f"Dashboard rendered → {output_path}"
 
 
 # ─── Resources & prompts ──────────────────────────────────────────────────────
