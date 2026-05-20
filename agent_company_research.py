@@ -51,7 +51,7 @@ def add_log(msg: str) -> None:
 
 def write_status(steps: list, company_data=None, financial_data=None,
                  completed: bool = False, title: str = "Research Dashboard",
-                 phase: str = "running", chat_messages: list | None = None) -> None:
+                 phase: str = "running") -> None:
     payload = {
         "phase": phase,
         "title": title,
@@ -59,7 +59,6 @@ def write_status(steps: list, company_data=None, financial_data=None,
         "company_data": company_data,
         "financial_data": financial_data,
         "completed": completed,
-        "chat_messages": chat_messages or [],
         "logs": list(_log_buffer),
         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -319,121 +318,17 @@ No explanations."""
                         iteration_history.append(f"Error in {func_name}: {exc}")
 
                 elif response_text.startswith("FINAL_ANSWER:"):
-                    add_log("All steps complete — entering chat mode.")
-                    chat_messages: list[dict] = []
-                    write_status(steps, company_data, financial_data,
-                                 completed=True, phase="chat",
-                                 chat_messages=chat_messages)
+                    add_log("All steps complete — dashboard ready.")
+                    write_status(steps, company_data, financial_data, completed=True)
                     print("\n" + "=" * 60)
-                    print("  Research done — chat mode active at http://localhost:5000")
+                    print("  Done — dashboard at http://localhost:5000")
                     print("=" * 60)
-
-                    fin_summary = ""
-                    if financial_data and not financial_data.get("error"):
-                        fin_summary = (
-                            f"ticker={financial_data.get('ticker')}, "
-                            f"market_cap={financial_data.get('market_cap')}, "
-                            f"pe={financial_data.get('pe_ratio')}, "
-                            f"eps={financial_data.get('eps')}, "
-                            f"margin={financial_data.get('profit_margin')}, "
-                            f"sector={financial_data.get('sector')}, "
-                            f"revenue_trend={financial_data.get('revenue_trend')}"
-                        )
-                    wiki_summary = company_data.get("extract", "")[:200] if company_data else ""
-
-                    chat_system = f"""You are a financial research assistant. Answer questions about the researched company.
-
-Company: {company_data.get('title', '') if company_data else user_query}
-Overview: {wiki_summary}
-Financials: {fin_summary or 'N/A'}
-
-Rules:
-- Answer from the data above when possible: CHAT_RESPONSE: <answer>
-- If user asks about a DIFFERENT company or missing metric, fetch it: FUNCTION_CALL: fetch_financial_data|<ticker>
-- Keep answers to 2-3 sentences.
-- Respond with ONE line only: CHAT_RESPONSE: ... or FUNCTION_CALL: ..."""
-
-                    chat_input_file = os.path.join(DATA_DIR, "chat_input.json")
-
-                    while True:
-                        await asyncio.sleep(0.4)
-                        if not os.path.exists(chat_input_file):
-                            continue
-                        try:
-                            with open(chat_input_file, encoding="utf-8") as fh:
-                                chat_payload = json.load(fh)
-                            os.remove(chat_input_file)
-                        except Exception:
-                            continue
-
-                        user_chat_msg = chat_payload.get("message", "").strip()
-                        if not user_chat_msg:
-                            continue
-
-                        add_log(f"Chat: {user_chat_msg}")
-                        chat_messages.append({"role": "user", "content": user_chat_msg,
-                                              "ts": time.strftime("%H:%M:%S")})
-                        write_status(steps, company_data, financial_data,
-                                     completed=True, phase="chat",
-                                     chat_messages=chat_messages)
-
-                        # LLM decides: answer or call a tool
-                        history_str = "\n".join(
-                            f"{m['role'].upper()}: {m['content']}"
-                            for m in chat_messages[-6:]  # last 3 turns
-                        )
-                        try:
-                            chat_response = await llm(chat_system, history_str,
-                                                      timeout=60, max_tokens=400)
-                        except Exception as exc:
-                            chat_response = f"CHAT_RESPONSE: Sorry, I encountered an error: {exc}"
-
-                        add_log(f"Chat LLM → {chat_response[:100]}")
-
-                        # Handle tool call inside chat
-                        if chat_response.startswith("FUNCTION_CALL:"):
-                            _, fn_info = chat_response.split(":", 1)
-                            fn_info = fn_info.strip()
-                            fn_name = fn_info.split("|")[0].strip()
-                            tool = next((t for t in tools if t.name == fn_name), None)
-                            if tool:
-                                add_log(f"→ chat tool call: {fn_name}()")
-                                try:
-                                    args = parse_arguments(fn_info, tool.inputSchema.get("properties", {}))
-                                    result = await session.call_tool(fn_name, arguments=args)
-                                    result_str = (
-                                        " | ".join(item.text if hasattr(item, "text") else str(item)
-                                                   for item in result.content)
-                                        if hasattr(result, "content") and isinstance(result.content, list)
-                                        else str(result)
-                                    )
-                                    if fn_name == "fetch_financial_data":
-                                        try:
-                                            financial_data = json.loads(result_str)
-                                        except Exception:
-                                            pass
-                                    add_log(f"✓ chat tool {fn_name} done")
-                                    # Summarise the tool result as agent reply
-                                    summary = await llm(
-                                        "Summarise this financial data in 2-3 sentences for a non-expert.",
-                                        result_str[:600], timeout=60, max_tokens=300,
-                                    )
-                                    agent_reply = summary
-                                except Exception as exc:
-                                    agent_reply = f"Tool call failed: {exc}"
-                            else:
-                                agent_reply = f"I don't have a tool called '{fn_name}'."
-                        elif chat_response.startswith("CHAT_RESPONSE:"):
-                            agent_reply = chat_response[len("CHAT_RESPONSE:"):].strip()
-                        else:
-                            agent_reply = chat_response  # pass through
-
-                        chat_messages.append({"role": "agent", "content": agent_reply,
-                                              "ts": time.strftime("%H:%M:%S")})
-                        add_log(f"Agent replied: {agent_reply[:80]}")
-                        write_status(steps, company_data, financial_data,
-                                     completed=True, phase="chat",
-                                     chat_messages=chat_messages)
+                    print("\nPress Ctrl+C to stop.\n")
+                    try:
+                        while True:
+                            await asyncio.sleep(1)
+                    except asyncio.CancelledError:
+                        pass
                     break
 
                 else:

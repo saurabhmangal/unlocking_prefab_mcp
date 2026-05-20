@@ -31,16 +31,6 @@ def api_submit_query():
     return jsonify({"ok": True})
 
 
-@app.route("/api/chat", methods=["POST"])
-def api_chat():
-    data = request.get_json(silent=True) or {}
-    message = data.get("message", "").strip()
-    if not message:
-        return jsonify({"error": "message is required"}), 400
-    with open(os.path.join(DATA_DIR, "chat_input.json"), "w", encoding="utf-8") as fh:
-        json.dump({"message": message}, fh)
-    return jsonify({"ok": True})
-
 
 @app.route("/api/status")
 def api_status():

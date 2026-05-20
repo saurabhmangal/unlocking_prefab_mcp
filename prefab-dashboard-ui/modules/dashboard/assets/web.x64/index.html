@@ -132,39 +132,28 @@ function Step({ step }) {
   const meta = STATUS_META[step.status] || STATUS_META.pending;
   return (
     <div style={{
-      display: 'flex', alignItems: 'flex-start', gap: 12,
-      background: C.surface, borderRadius: 12, padding: '14px 18px',
+      display: 'flex', alignItems: 'center', gap: 10,
+      background: C.surface, borderRadius: 8, padding: '8px 12px',
       border: `1px solid ${step.status === 'running' ? 'rgba(108,99,255,.45)'
                           : step.status === 'done'    ? 'rgba(52,211,153,.3)'
                           : step.status === 'error'   ? 'rgba(248,113,113,.3)'
                           : C.border}`,
       transition: 'border-color .3s',
-      animation: 'fadeIn .3s ease forwards', willChange: 'opacity, transform',
     }}>
       <div style={{
-        width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+        width: 22, height: 22, borderRadius: 6, flexShrink: 0,
         display: 'grid', placeItems: 'center',
-        background: meta.bg, border: `1px solid ${meta.color}44`,
-        fontSize: 14, color: meta.color, transition: 'all .3s',
+        background: meta.bg, fontSize: 11, color: meta.color,
       }}>
-        {meta.icon}
+        {step.status === 'running' ? <Spinner /> : meta.icon}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '.9rem', marginBottom: 2 }}>
+        <div style={{ fontSize: '.82rem', fontWeight: 600, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {step.label}
-          {step.status === 'running' && <Spinner />}
         </div>
-        <div style={{ fontSize: '.73rem', color: C.accent3, fontFamily: 'Consolas, monospace', marginBottom: step.result ? 4 : 0 }}>
+        <div style={{ fontSize: '.7rem', color: C.accent3, fontFamily: 'Consolas, monospace' }}>
           {step.tool}()
         </div>
-        {step.result && (
-          <div style={{ fontSize: '.8rem', color: step.status === 'error' ? C.error : C.success, wordBreak: 'break-word', lineHeight: 1.5 }}>
-            {step.result}
-          </div>
-        )}
-        {!step.result && step.status === 'pending' && (
-          <div style={{ fontSize: '.78rem', color: C.dim, opacity: .5 }}>Waiting…</div>
-        )}
       </div>
     </div>
   );
@@ -285,140 +274,6 @@ function Results({ data }) {
           </a>
         )}
       </Card>
-    </div>
-  );
-}
-
-/* ── Chat panel ── */
-function ChatPanel({ messages, phase, query }) {
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const bottomRef = useRef(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const canChat = phase === 'chat';
-
-  async function send(e) {
-    e.preventDefault();
-    if (!input.trim() || !canChat || sending) return;
-    setSending(true);
-    const msg = input.trim();
-    setInput('');
-    await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg }),
-    });
-    setSending(false);
-  }
-
-  return (
-    <div style={{
-      background: C.surface, border: `1px solid ${C.border}`,
-      borderRadius: 12, display: 'flex', flexDirection: 'column',
-      overflow: 'hidden', animation: 'fadeIn .4s ease',
-    }}>
-      {/* header */}
-      <div style={{
-        padding: '12px 18px', borderBottom: `1px solid ${C.border}`,
-        display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
-      }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1.6px', textTransform: 'uppercase', color: C.accent2 }}>
-          Ask the Agent
-        </span>
-        <div style={{ flex: 1 }} />
-        {!canChat && (
-          <span style={{ fontSize: 10, color: C.dim }}>Available after research completes</span>
-        )}
-        {canChat && (
-          <Badge style={{ background: 'rgba(52,211,153,.1)', border: '1px solid rgba(52,211,153,.3)', color: C.success }}>
-            <LiveDot done={false} /> Ready
-          </Badge>
-        )}
-      </div>
-
-      {/* pinned query context */}
-      {query && (
-        <div style={{
-          padding: '8px 18px', borderBottom: `1px solid ${C.border}`,
-          background: 'rgba(108,99,255,.07)', flexShrink: 0,
-          display: 'flex', alignItems: 'flex-start', gap: 8,
-        }}>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: C.accent2, flexShrink: 0, marginTop: 1 }}>Query</span>
-          <span style={{ fontSize: '.82rem', color: C.text, lineHeight: 1.5 }}>{query}</span>
-        </div>
-      )}
-
-      {/* messages */}
-      <div style={{
-        flex: 1, overflowY: 'auto', padding: '14px 18px',
-        display: 'flex', flexDirection: 'column', gap: 10,
-        minHeight: 160, maxHeight: 340,
-      }}>
-        {messages.length === 0 && (
-          <div style={{ color: C.dim, fontSize: '.83rem', opacity: .55, margin: 'auto' }}>
-            {canChat ? 'Ask a follow-up question…' : 'Chat unlocks after research completes.'}
-          </div>
-        )}
-        {messages.map((m, i) => {
-          const isUser = m.role === 'user';
-          return (
-            <div key={i} style={{
-              display: 'flex', flexDirection: 'column',
-              alignItems: isUser ? 'flex-end' : 'flex-start',
-              animation: 'fadeIn .25s ease',
-            }}>
-              <div style={{
-                maxWidth: '82%', padding: '9px 14px', borderRadius: isUser ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                background: isUser ? 'rgba(108,99,255,.25)' : C.surface2,
-                border: `1px solid ${isUser ? 'rgba(108,99,255,.4)' : C.border}`,
-                fontSize: '.88rem', lineHeight: 1.55, color: C.text,
-              }}>
-                {m.content}
-              </div>
-              <div style={{ fontSize: '.7rem', color: C.dim, marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>
-                {isUser ? 'You' : 'Agent'} · {m.ts}
-              </div>
-            </div>
-          );
-        })}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* input */}
-      <form onSubmit={send} style={{
-        padding: '12px 14px', borderTop: `1px solid ${C.border}`,
-        display: 'flex', gap: 8, flexShrink: 0,
-      }}>
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          disabled={!canChat || sending}
-          placeholder={canChat ? 'Ask a follow-up…' : 'Waiting for research to complete…'}
-          style={{
-            flex: 1, background: C.surface2, color: C.text,
-            border: `1px solid ${C.border}`, borderRadius: 8,
-            padding: '9px 13px', fontSize: '.9rem', fontFamily: 'inherit',
-            outline: 'none', opacity: canChat ? 1 : .45,
-            transition: 'border-color .2s',
-          }}
-          onFocus={e => { if (canChat) e.target.style.borderColor = C.accent; }}
-          onBlur={e => e.target.style.borderColor = C.border}
-        />
-        <button type="submit" disabled={!input.trim() || !canChat || sending} style={{
-          background: canChat && input.trim() ? 'linear-gradient(135deg,#6c63ff,#a78bfa)' : C.surface2,
-          color: '#fff', border: 'none', borderRadius: 8,
-          padding: '9px 18px', fontWeight: 700, fontSize: '.9rem',
-          cursor: canChat && input.trim() && !sending ? 'pointer' : 'not-allowed',
-          opacity: canChat && input.trim() && !sending ? 1 : .4,
-          transition: 'opacity .2s, background .2s', flexShrink: 0,
-        }}>
-          {sending ? '…' : '↑'}
-        </button>
-      </form>
     </div>
   );
 }
@@ -567,7 +422,6 @@ function App() {
   const finData      = status?.financial_data ?? null;
   const done         = status?.completed      ?? false;
   const logs         = status?.logs           ?? [];
-  const chatMessages = status?.chat_messages  ?? [];
 
   return (
     <div>
@@ -597,8 +451,7 @@ function App() {
         </h1>
         <p style={{ color:'#a5b4fc', fontSize:'.92rem', marginTop:6, position:'relative', zIndex:1 }}>
           {phase === 'waiting' ? 'Enter a query below to start the agent.'
-           : phase === 'chat'    ? 'Research complete — ask follow-up questions below.'
-           : done                ? 'All steps complete.'
+           : done ? 'All steps complete.'
            : 'Updating live as each step completes…'}
         </p>
       </div>
@@ -617,11 +470,6 @@ function App() {
             <div>
               {finData && <Financials data={finData} />}
               {data && <Results data={data} />}
-
-              <div style={{ marginTop: 28 }}>
-                <SectionLabel>Chat</SectionLabel>
-                <ChatPanel messages={chatMessages} phase={phase} query={title} />
-              </div>
             </div>
 
             {/* RIGHT — steps + logs, sticky */}
